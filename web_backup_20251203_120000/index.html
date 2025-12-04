@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana Tap-to-Pay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 400px;
+            width: 100%;
+            padding: 32px;
+            animation: slideUp 0.4s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #999;
+        }
+
+        /* Loading State */
+        .loadingSpinner {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Payment Details */
+        .paymentDetails {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .merchantSection {
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .merchantName {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+
+        .amountSection {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .amount {
+            font-size: 48px;
+            font-weight: bold;
+            color: #333;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .amountLabel {
+            font-size: 16px;
+            color: #999;
+        }
+
+        .tipsSection {
+            margin-bottom: 24px;
+        }
+
+        .tipsLabel {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .tipButtons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .tipBtn {
+            padding: 10px 8px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            color: #666;
+        }
+
+        .tipBtn:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .tipBtn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        /* Button */
+        .payBtn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .payBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .payBtn:active {
+            transform: translateY(0);
+        }
+
+        .payBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Status Messages */
+        .statusContainer {
+            display: none;
+            background: #f0f4ff;
+            border: 1px solid #667eea;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .status {
+            color: #667eea;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .statusSpinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 8px auto;
+        }
+
+        .errorContainer {
+            display: none;
+            background: #ffe0e0;
+            border: 1px solid #ff4444;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .error {
+            color: #d32f2f;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .retryBtn {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .retryBtn:hover {
+            background: #b71c1c;
+        }
+
+        /* Success */
+        .successContainer {
+            display: none;
+            text-align: center;
+        }
+
+        .successIcon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            animation: scaleIn 0.4s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .successMessage {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .successText {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 24px;
+        }
+
+        .txLink {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .txLink:hover {
+            background: #764ba2;
+        }
+
+        .footer {
+            margin-top: 24px;
+            text-align: center;
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .container {
+                padding: 24px;
+            }
+
+            .amount {
+                font-size: 40px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">◎</div>
+            <h1>Tap-to-Pay</h1>
+            <p class="subtitle">Solana Payment</p>
+        </div>
+
+        <div id="loadingSpinner" class="loadingSpinner">
+            <div class="spinner"></div>
+            <p style="margin-top: 16px; color: #999;">Loading payment...</p>
+        </div>
+
+        <div id="paymentDetails" class="paymentDetails">
+            <div class="merchantSection">
+                <div class="merchantName" id="merchantName">Merchant Name</div>
+            </div>
+
+            <div class="amountSection">
+                <div class="amount" id="amount">◎ 0.00</div>
+                <div class="amountLabel" id="amountLabel">SOL</div>
+            </div>
+
+            <div class="tipsSection">
+                <label class="tipsLabel">Add a tip (optional)</label>
+                <div class="tipButtons">
+                    <button class="tipBtn" data-tip="0">No tip</button>
+                    <button class="tipBtn" data-tip="0.01">0.01 SOL</button>
+                    <button class="tipBtn" data-tip="0.05">0.05 SOL</button>
+                </div>
+            </div>
+
+            <button id="payBtn" class="payBtn">Pay with Phantom</button>
+
+            <div id="statusContainer" class="statusContainer">
+                <div id="status" class="status">Processing...</div>
+                <div class="statusSpinner"></div>
+            </div>
+
+            <div id="errorContainer" class="errorContainer">
+                <div id="error" class="error">Error</div>
+                <button id="retryBtn" class="retryBtn">Retry</button>
+            </div>
+        </div>
+
+        <div id="successMessage" class="successContainer">
+            <div class="successIcon">✅</div>
+            <div class="successMessage">Payment Received!</div>
+            <p class="successText">Your transaction has been confirmed on the Solana blockchain.</p>
+            <a id="txLink" href="#" class="txLink" target="_blank">View on Solana Explorer</a>
+        </div>
+
+        <div class="footer">
+            Powered by Solana | <a href="dashboard.html" style="color: #667eea; text-decoration: none;">📊 Merchant Dashboard</a>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

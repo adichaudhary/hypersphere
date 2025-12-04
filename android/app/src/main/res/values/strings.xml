@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tap-to-Pay</string>
+    <string name="create_payment">Create Payment</string>
+    <string name="amount_hint">Amount (lamports)</string>
+    <string name="waiting_payment">Waiting for payment...</string>
+    <string name="payment_received">Payment Received!</string>
+    <string name="nfc_broadcasting">NFC Broadcasting...</string>
+</resources>
