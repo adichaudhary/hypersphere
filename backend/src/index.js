@@ -127,6 +127,16 @@ app.post('/payment_intents', async (req, res) => {
       }
     }
 
+    // Normalize chain value - ensure consistency (use SOL, not Solana)
+    let normalizedChain = chain || 'SOL';
+    const chainUpper = normalizedChain.toUpperCase();
+    // Normalize "Solana" to "SOL" for consistency
+    if (chainUpper === 'SOLANA') {
+      normalizedChain = 'SOL';
+    } else if (chainUpper === 'SOL') {
+      normalizedChain = 'SOL';
+    }
+
     // Create payment intent object
     const paymentIntent = {
       id,
@@ -139,7 +149,7 @@ app.post('/payment_intents', async (req, res) => {
       recipient_address,
       token_decimals,
       tip_amount: tip_amount || 0,
-      chain: chain || 'Solana',
+      chain: normalizedChain,
     };
 
     // Save to database
@@ -209,7 +219,7 @@ app.get('/payment_intents/:id/status', async (req, res) => {
     }
 
     // Prefer on-chain status if available, otherwise use database
-    const status = onChainData?.status || paymentIntent.status || 'pending';
+    const status = onChainData?.status || paymentIntent.status || 'confirmed';
     const tx_signature = onChainData?.tx_signature || paymentIntent.tx_signature || null;
 
     res.json(sanitizeObject({
@@ -219,7 +229,7 @@ app.get('/payment_intents/:id/status', async (req, res) => {
       amount: paymentIntent.amount,
       merchant_id: paymentIntent.merchant_id,
       tip_amount: paymentIntent.tip_amount || 0,
-      chain: paymentIntent.chain || 'Solana',
+      chain: paymentIntent.chain || 'SOL',
       on_chain: onChainData !== null,
       pda: onChainData?.pda || null,
       currency: paymentIntent.currency || 'SOL',
@@ -295,7 +305,7 @@ app.get('/merchants/:id/payments', async (req, res) => {
         amount: p.amount,
         status: p.status,
         tip_amount: p.tip_amount || 0,
-        chain: p.chain || 'Solana',
+        chain: p.chain || 'SOL',
         currency: p.currency || 'SOL',
         created_at: p.created_at,
         updated_at: p.updated_at,

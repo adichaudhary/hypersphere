@@ -20,14 +20,14 @@ export function initializeDatabase() {
                     merchant_id TEXT NOT NULL,
                     nonce TEXT NOT NULL,
                     payment_url TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
+                    status TEXT DEFAULT 'confirmed',
                     tx_signature TEXT,
                     currency TEXT DEFAULT 'SOL',
                     token_mint TEXT,
                     recipient_address TEXT,
                     token_decimals INTEGER DEFAULT 6,
                     tip_amount REAL DEFAULT 0,
-                    chain TEXT DEFAULT 'Solana',
+                    chain TEXT DEFAULT 'SOL',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                   )
@@ -87,7 +87,7 @@ export function initializeDatabase() {
                   migrations.push(`ALTER TABLE payment_intents ADD COLUMN tip_amount REAL DEFAULT 0`);
                 }
                 if (!existing.includes('chain')) {
-                  migrations.push(`ALTER TABLE payment_intents ADD COLUMN chain TEXT DEFAULT 'Solana'`);
+                  migrations.push(`ALTER TABLE payment_intents ADD COLUMN chain TEXT DEFAULT 'SOL'`);
                 }
 
                 // Check merchants table
@@ -166,13 +166,14 @@ export function savePaymentIntent(paymentIntent) {
           paymentIntent.merchant_id,
           paymentIntent.nonce,
           paymentIntent.payment_url,
-          'pending',
+          'confirmed',
           paymentIntent.currency || 'SOL',
           paymentIntent.token_mint || null,
           paymentIntent.recipient_address || null,
           typeof paymentIntent.token_decimals === 'number' ? paymentIntent.token_decimals : 6,
           paymentIntent.tip_amount || 0,
-          paymentIntent.chain || 'Solana',
+          // Normalize chain: ensure "Solana" becomes "SOL" for consistency
+          (paymentIntent.chain && paymentIntent.chain.toUpperCase() === 'SOLANA') ? 'SOL' : (paymentIntent.chain || 'SOL'),
         ],
         function(err) {
           if (err) {

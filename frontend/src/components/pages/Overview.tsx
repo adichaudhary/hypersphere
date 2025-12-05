@@ -1,7 +1,7 @@
 import { MetricCard } from "../MetricCard";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { useState, useEffect } from "react";
-import { fetchMerchantPayments, formatAmount, formatTxSignature, type Payment } from "../../utils/api";
+import { fetchMerchantPayments, formatAmount, formatTxSignature, getExplorerUrl, type Payment } from "../../utils/api";
 
 // Merchant ID - update this with your actual merchant wallet address
 const MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
@@ -129,16 +129,17 @@ export function Overview() {
 
   // Get latest 8 confirmed transactions for display
   const recentTransactions = payments
-    .filter(p => p.status === "paid") // Only show confirmed/paid transactions
+    .filter(p => p.status === "confirmed" || p.status === "paid") // Only show confirmed transactions
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 8)
     .map(payment => ({
       time: new Date(payment.created_at).toLocaleTimeString('en-US', { hour12: false }),
       amount: formatAmount(payment.amount),
-      chain: payment.chain || (payment.currency === "USDC" ? "Solana" : payment.currency || "Solana"),
+      chain: payment.chain || (payment.currency === "USDC" ? "SOL" : payment.currency || "SOL"),
       tip: formatAmount(payment.tip_amount || 0),
       signature: formatTxSignature(payment.tx_signature),
       status: "Confirmed",
+      tx_signature: payment.tx_signature,
     }));
 
   if (loading) {
@@ -301,9 +302,14 @@ export function Overview() {
                     <td className="px-6 py-4 text-[#E7ECEF]">${tx.tip}</td>
                     <td className="px-6 py-4 text-[#A5B6C8]">{tx.signature}</td>
                     <td className="px-6 py-4">
-                      <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
+                      <a
+                        href={getExplorerUrl(tx.chain, tx.tx_signature)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#00E7FF] hover:text-[#3457FF] transition-colors cursor-pointer"
+                      >
                         View Details
-                      </button>
+                      </a>
                     </td>
                   </tr>
                 ))

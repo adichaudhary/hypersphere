@@ -94,3 +94,25 @@ export function formatDateTime(dateString: string): string {
   }).replace(',', '');
 }
 
+/**
+ * Get blockchain explorer URL for a transaction
+ */
+export function getExplorerUrl(chain: string, txSignature: string | null): string {
+  if (!txSignature) {
+    return '#';
+  }
+  
+  const chainUpper = chain?.toUpperCase() || 'SOL';
+  
+  if (chainUpper === 'SOL' || chainUpper === 'SOLANA') {
+    return `https://solscan.io/tx/${txSignature}`;
+  } else if (chainUpper === 'ETH' || chainUpper === 'ETHEREUM') {
+    return `https://etherscan.io/tx/${txSignature}`;
+  } else if (chainUpper === 'BASE') {
+    return `https://basescan.org/tx/${txSignature}`;
+  }
+  
+  // Default to Solana
+  return `https://solscan.io/tx/${txSignature}`;
+}
+
