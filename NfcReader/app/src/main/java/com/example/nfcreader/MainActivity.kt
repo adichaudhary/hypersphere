@@ -175,13 +175,30 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
             
             Log.d(TAG, "URL opened successfully")
+            
+            // Determine which wallet app based on URL scheme
+            val walletApp = when (uri.scheme) {
+                "solana" -> "Phantom"
+                "ethereum" -> "MetaMask"
+                else -> "wallet app"
+            }
+            
             runOnUiThread {
-                Toast.makeText(this, "Opening in Phantom...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Opening in $walletApp...", Toast.LENGTH_SHORT).show()
             }
         } catch (e: android.content.ActivityNotFoundException) {
             Log.e(TAG, "No app found to handle URL: ${e.message}")
+            
+            // Determine which wallet app is needed based on URL scheme
+            val uri = Uri.parse(url)
+            val walletApp = when (uri.scheme) {
+                "solana" -> "Phantom wallet"
+                "ethereum" -> "MetaMask wallet"
+                else -> "wallet app"
+            }
+            
             runOnUiThread {
-                Toast.makeText(this, "No app found to open URL. Please install Phantom wallet.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "No app found to open URL. Please install $walletApp.", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error opening URL: $url", e)
