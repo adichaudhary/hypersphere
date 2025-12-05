@@ -11,6 +11,7 @@ export function Payments() {
   const [chainFilter, setChainFilter] = useState<string>("All");
   const [dateRange, setDateRange] = useState<string>("Today");
   const [tipFilter, setTipFilter] = useState<string>("All");
+  const [amountRange, setAmountRange] = useState<string>("All");
 
   // Fetch payments from backend
   useEffect(() => {
@@ -40,6 +41,7 @@ export function Payments() {
     id: payment.id,
     time: formatDateTime(payment.created_at),
     amount: formatAmount(payment.amount),
+    rawAmount: payment.amount, // Store raw amount for filtering
     chain: payment.chain || (payment.currency === "USDC" ? "SOL" : payment.currency || "SOL"),
     tip: formatAmount(payment.tip_amount || 0),
     signature: formatTxSignature(payment.tx_signature),
@@ -48,9 +50,34 @@ export function Payments() {
   }));
 
   const filteredPayments = displayPayments.filter((payment) => {
-    if (chainFilter !== "All" && payment.chain !== chainFilter) return false;
-    if (tipFilter === "With Tip" && parseFloat(payment.tip) === 0) return false;
-    if (tipFilter === "No Tip" && parseFloat(payment.tip) > 0) return false;
+    // Chain filtering - compare normalized values
+    if (chainFilter !== "All") {
+      const paymentChain = (payment.chain || "").toUpperCase();
+      const filterChain = chainFilter.toUpperCase();
+      if (paymentChain !== filterChain) return false;
+    }
+    if (tipFilter === "With Tip" && parseFloat(payment.tip.replace(/,/g, '')) === 0) return false;
+    if (tipFilter === "No Tip" && parseFloat(payment.tip.replace(/,/g, '')) > 0) return false;
+    
+    // Amount range filtering - use raw amount value
+    if (amountRange !== "All") {
+      const amount = payment.rawAmount; // Use raw amount value
+      switch (amountRange) {
+        case "$0 - $500":
+          if (amount < 0 || amount > 500) return false;
+          break;
+        case "$500 - $1,000":
+          if (amount < 500 || amount > 1000) return false;
+          break;
+        case "$1,000 - $5,000":
+          if (amount < 1000 || amount > 5000) return false;
+          break;
+        case "$5,000+":
+          if (amount < 5000) return false;
+          break;
+      }
+    }
+    
     // Date filtering can be enhanced later
     return true;
   });
@@ -144,9 +171,9 @@ export function Payments() {
               className="w-full bg-[#0B0D0F] border border-[#1F2228] rounded-lg px-4 py-2 text-[#E7ECEF] focus:outline-none focus:border-[#00E7FF]"
             >
               <option>All</option>
-              <option>Solana</option>
-              <option>Base</option>
-              <option>Ethereum</option>
+              <option>SOL</option>
+              <option>BASE</option>
+              <option>ETH</option>
             </select>
           </div>
 
@@ -165,7 +192,11 @@ export function Payments() {
 
           <div>
             <label className="block text-[#A5B6C8] mb-2">Amount Range</label>
-            <select className="w-full bg-[#0B0D0F] border border-[#1F2228] rounded-lg px-4 py-2 text-[#E7ECEF] focus:outline-none focus:border-[#00E7FF]">
+            <select
+              value={amountRange}
+              onChange={(e) => setAmountRange(e.target.value)}
+              className="w-full bg-[#0B0D0F] border border-[#1F2228] rounded-lg px-4 py-2 text-[#E7ECEF] focus:outline-none focus:border-[#00E7FF]"
+            >
               <option>All</option>
               <option>$0 - $500</option>
               <option>$500 - $1,000</option>
