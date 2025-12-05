@@ -1,0 +1,116 @@
+// Prisma schema for Hypersphere custodial CCTP relayer
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Chain {
+  SOLANA
+  ETHEREUM
+  BASE
+}
+
+enum PaymentStatus {
+  RECEIVED
+  BRIDGE_PENDING
+  BRIDGE_IN_PROGRESS
+  BRIDGE_FAILED
+  SETTLED
+}
+
+enum TransferStatus {
+  PENDING_BURN
+  PENDING_ATTESTATION
+  PENDING_MINT
+  COMPLETED
+  FAILED
+}
+
+enum PayoutStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Merchant {
+  id            String   @id @default(uuid())
+  name          String
+  email         String?
+  payout_chain  Chain
+  payout_address String
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  payments      Payment[]
+  payouts       Payout[]
+
+  @@index([payout_chain])
+  @@map("merchants")
+}
+
+model Payment {
+  id                      String        @id @default(uuid())
+  merchant_id             String
+  source_chain            Chain
+  source_tx_hash          String        @unique
+  amount_usdc             Decimal      @db.Decimal(20, 6)
+  status                  PaymentStatus @default(RECEIVED)
+  custodial_source_address String
+  created_at              DateTime      @default(now())
+  updated_at              DateTime      @updatedAt
+
+  merchant                Merchant      @relation(fields: [merchant_id], references: [id])
+  transfers               Transfer[]
+
+  @@index([merchant_id])
+  @@index([source_chain])
+  @@index([status])
+  @@index([source_tx_hash])
+  @@map("payments")
+}
+
+model Transfer {
+  id              String         @id @default(uuid())
+  payment_id      String
+  burn_chain      Chain
+  burn_tx_hash    String?       @unique
+  attestation_id  String?
+  mint_chain      Chain
+  mint_tx_hash    String?       @unique
+  status          TransferStatus @default(PENDING_BURN)
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+
+  payment         Payment        @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+
+  @@index([payment_id])
+  @@index([status])
+  @@index([burn_tx_hash])
+  @@index([mint_tx_hash])
+  @@map("transfers")
+}
+
+model Payout {
+  id                String       @id @default(uuid())
+  merchant_id       String
+  destination_chain Chain
+  destination_address String
+  amount_usdc       Decimal      @db.Decimal(20, 6)
+  tx_hash           String?      @unique
+  status            PayoutStatus @default(PENDING)
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+
+  merchant          Merchant     @relation(fields: [merchant_id], references: [id])
+
+  @@index([merchant_id])
+  @@index([status])
+  @@index([tx_hash])
+  @@map("payouts")
+}
+

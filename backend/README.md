@@ -1,169 +1,275 @@
-# Tap-to-Pay Backend
+# Hypersphere Backend - Custodial CCTP + Bridge Kit Relayer
 
-A Node.js Express backend server for Solana tap-to-pay payments.
+A TypeScript/Node.js backend service that orchestrates cross-chain USDC payments using Circle's Cross-Chain Transfer Protocol (CCTP) and Bridge Kit. The system receives USDC payments on any supported chain (Solana, Ethereum, Base), bridges them to the merchant's preferred chain, and forwards funds to merchant payout addresses.
+
+## Architecture
+
+### Core Components
+
+- **PaymentService**: Registers incoming payments received on custodial addresses
+- **BridgeService**: Orchestrates CCTP bridge operations (burn → attestation → mint)
+- **PayoutService**: Sends USDC to merchant payout addresses
+- **BridgeKitClient**: Wrapper for Circle's Bridge Kit / CCTP APIs
+- **Chain Clients**: Solana and EVM (Ethereum/Base) clients for sending USDC
+
+### Database Schema
+
+- **merchants**: Merchant profiles with payout preferences
+- **payments**: Incoming payment records
+- **transfers**: CCTP bridge operation tracking
+- **payouts**: Outgoing payment records to merchants
 
 ## Setup
 
 ### Prerequisites
-- Node.js 16+ and npm
-- Solana devnet/localnet running (or use public RPC)
+
+- Node.js 18+
+- PostgreSQL 14+
+- Circle API key (for CCTP/Bridge Kit)
 
 ### Installation
 
 ```bash
-cd backend
+# Install dependencies
 npm install
+
+# Generate Prisma client
+npm run generate
+
+# Run database migrations
+npm run migrate
 ```
 
-### Environment Configuration
+### Environment Variables
 
 Create a `.env` file in the `backend` directory:
 
 ```env
 # Server
 PORT=3001
-BASE_URL=http://localhost:3001
+NODE_ENV=development
 
-# Solana
-SOLANA_RPC_URL=http://localhost:8899
-PROGRAM_ID=TapToPay111111111111111111111111111111111111
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/hypersphere
+
+# Circle API
+CIRCLE_API_KEY=your_circle_api_key_here
+CIRCLE_API_SECRET=your_circle_api_secret_here  # Optional
+
+# Custodial Wallet Private Keys (hex format, never commit these!)
+CUSTODIAL_SOLANA_KEY=your_solana_private_key_hex
+CUSTODIAL_ETH_KEY=your_ethereum_private_key_hex
+CUSTODIAL_BASE_KEY=your_base_private_key_hex
+
+# RPC Endpoints
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+ETHEREUM_RPC_URL=https://eth.llamarpc.com
+BASE_RPC_URL=https://mainnet.base.org
+
+# USDC Contract Addresses (defaults provided, override if needed)
+USDC_ETHEREUM=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+USDC_BASE=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+USDC_SOLANA_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+
+# Circle CCTP Domain IDs (defaults provided)
+CCTP_DOMAIN_ETHEREUM=0
+CCTP_DOMAIN_BASE=6
+CCTP_DOMAIN_SOLANA=1
 ```
 
-### Running the Server
+**⚠️ Security Note**: Never commit private keys or API secrets to version control. Use environment variables or a secure secrets management system.
 
-**Development (with auto-reload):**
+### Database Setup
+
 ```bash
+# Create database (PostgreSQL)
+createdb hypersphere
+
+# Run migrations
+npm run migrate
+
+# (Optional) Open Prisma Studio to view data
+npm run studio
+```
+
+## Development
+
+```bash
+# Start development server with hot reload
 npm run dev
-```
 
-**Production:**
-```bash
+# Build TypeScript
+npm run build
+
+# Start production server
 npm start
 ```
 
-The server will start on `http://localhost:3001` by default.
-
 ## API Endpoints
 
-### 1. Create Payment Intent
-```
-POST /payment_intents
-Content-Type: application/json
+### Payments
 
+- `POST /api/payments/incoming` - Register incoming payment
+  ```json
+  {
+    "merchantId": "uuid",
+    "sourceChain": "ETHEREUM",
+    "sourceTxHash": "0x...",
+    "amountUsdc": "100.50",
+    "custodialSourceAddress": "0x..."
+  }
+  ```
+
+- `POST /api/payments/:id/bridge` - Start bridge process for payment
+- `GET /api/payments/:id` - Get payment details
+
+### Transfers
+
+- `POST /api/transfers/:id/mint` - Poll attestation and complete mint
+
+### Merchants
+
+- `POST /api/merchants` - Create merchant
+  ```json
+  {
+    "name": "Merchant Name",
+    "email": "merchant@example.com",
+    "payout_chain": "SOLANA",
+    "payout_address": "SolanaAddress..."
+  }
+  ```
+
+- `GET /api/merchants` - List all merchants
+- `GET /api/merchants/:id` - Get merchant details
+- `PUT /api/merchants/:id` - Update merchant
+- `POST /api/merchants/:id/payout` - Create and send payout
+  ```json
+  {
+    "amountUsdc": "100.50"
+  }
+  ```
+
+## Workflow
+
+### 1. Incoming Payment Registration
+
+When a USDC payment is detected on a custodial address:
+
+```bash
+POST /api/payments/incoming
 {
-  "amount": 1000000,
-  "merchant_id": "merchant-001"
-}
-
-Response (201):
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "amount": 1000000,
-  "merchant_id": "merchant-001",
-  "nonce": "a1b2c3d4...",
-  "payment_url": "http://localhost:3001/pay/550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-### 2. Get Payment Status
-```
-GET /payment_intents/{payment_intent_id}/status
-
-Response (200):
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "pending",
-  "tx_signature": null,
-  "amount": 1000000,
-  "merchant_id": "merchant-001",
-  "created_at": "2025-12-03T10:30:00.000Z",
-  "updated_at": "2025-12-03T10:30:00.000Z"
-}
-```
-
-### 3. Get Merchant Payments (Dashboard)
-```
-GET /merchants/{merchant_id}/payments
-
-Response (200):
-{
-  "merchant_id": "merchant-001",
-  "total_count": 5,
-  "payments": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "amount": 1000000,
-      "status": "paid",
-      "created_at": "2025-12-03T10:30:00.000Z",
-      "updated_at": "2025-12-03T10:31:00.000Z",
-      "tx_signature": "4Kx9Y7Z8a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z"
-    }
-  ]
-}
-```
-
-### 4. Get Payment Page (for frontend integration)
-```
-GET /pay/{payment_intent_id}
-
-Response (200):
-{
-  "paymentIntentId": "550e8400-e29b-41d4-a716-446655440000",
-  "amount": 1000000,
-  "nonce": "a1b2c3d4...",
-  "merchant_id": "merchant-001",
-  "programId": "TapToPay111111111111111111111111111111111111"
+  "merchantId": "...",
+  "sourceChain": "ETHEREUM",
+  "sourceTxHash": "0x...",
+  "amountUsdc": "100",
+  "custodialSourceAddress": "0x..."
 }
 ```
 
-### 5. Health Check
-```
-GET /health
+The system:
+- Creates a `payment` record with status `RECEIVED`
+- Creates a `transfer` record with status `PENDING_BURN` (if bridge needed)
+- If source chain == payout chain, marks payment as `SETTLED` (no bridge)
 
-Response (200):
+### 2. Bridge Orchestration
+
+Start bridge process:
+
+```bash
+POST /api/payments/:id/bridge
+```
+
+The system:
+- Burns USDC on source chain via Circle Bridge Kit
+- Updates transfer with `burn_tx_hash` and status `PENDING_ATTESTATION`
+
+Poll for attestation and mint:
+
+```bash
+POST /api/transfers/:id/mint
+```
+
+The system:
+- Fetches attestation from Circle
+- Mints USDC on destination chain
+- Updates transfer as `COMPLETED`
+- Marks payment as `SETTLED`
+- Triggers payout to merchant
+
+### 3. Payout to Merchant
+
+Automatically triggered after successful bridge, or manually:
+
+```bash
+POST /api/merchants/:id/payout
 {
-  "status": "ok"
+  "amountUsdc": "100"
 }
 ```
 
-## Database
+The system:
+- Creates `payout` record
+- Sends USDC to merchant's `payout_address` on their `payout_chain`
+- Updates payout with `tx_hash` and status `SENT`
 
-The backend uses SQLite3 for storing payment intents and merchant information.
+## Testing
 
-- **Database file**: `backend/data/payments.db` (created automatically)
-- **Tables**:
-  - `payment_intents` - Stores payment intent records
-  - `merchants` - Stores merchant information
+The test suite uses mocks to avoid real blockchain transactions and API calls:
 
-## Solana Integration
+```bash
+# Run all tests
+npm test
 
-### Payment Flow
+# Run tests in watch mode
+npm run test:watch
 
-1. **Create Payment Intent**: Frontend calls `POST /payment_intents` with amount and merchant ID
-2. **Backend Setup Watcher**: Server starts watching the PaymentIntent PDA on Solana
-3. **User Pays**: User signs and confirms the Solana transaction via the frontend
-4. **Solana Listener**: Backend detects the status change on the PDA (status = 1 = paid)
-5. **DB Update**: Backend updates the database with `status = "paid"` and `tx_signature`
-6. **Cleanup**: Watcher stops after confirmation or after 24 hours
+# Generate coverage report
+npm run test:coverage
+```
 
-### PDA Derivation
+### Test Structure
 
-Payment Intent PDAs are derived using:
-- Seeds: `[b"payment_intent", payment_intent_id]`
-- Program: The specified `PROGRAM_ID`
+- `PaymentService.test.ts` - Payment registration and status updates
+- `BridgeService.test.ts` - Bridge orchestration flow
+- `PayoutService.test.ts` - Payout creation and execution
 
-## Development Tips
+All tests use mocked clients to avoid:
+- Real blockchain transactions
+- Real API calls to Circle
+- Real money transfers
 
-- Check logs to see Solana listener activity
-- Database file is auto-created in `data/` directory
-- Watchers auto-cleanup after 24 hours to prevent memory leaks
-- Use `/health` endpoint to verify server is running
+## Integration Points (TODOs)
 
-## Error Handling
+The following integration points are stubbed and need real implementations:
 
-All endpoints return appropriate HTTP status codes:
-- `201` - Payment intent created successfully
-- `200` - Successful GET request
-- `400` - Bad request (validation error)
-- `404` - Not found (invalid payment intent or merchant)
-- `500` - Server error
+### Circle Bridge Kit Client
+
+- `burnUsdcOnChain()` - Integrate with Circle Bridge Kit SDK or REST API
+- `getAttestation()` - Poll Circle's attestation API
+- `mintUsdcOnChain()` - Integrate with Circle Bridge Kit mint API
+
+### Chain Clients
+
+- `SolanaClient.sendUsdc()` - Wire up Solana RPC and signing
+- `EvmClient.sendUsdc()` - Wire up Ethereum/Base RPC and signing
+
+### Security
+
+- Replace direct private key usage with secure key management (AWS KMS, HashiCorp Vault, etc.)
+- Implement proper key rotation
+- Add rate limiting and request validation
+- Add authentication/authorization for API endpoints
+
+## Production Considerations
+
+1. **Database**: Use connection pooling and read replicas for scale
+2. **Monitoring**: Add Prometheus metrics and distributed tracing
+3. **Error Handling**: Implement retry logic and dead letter queues
+4. **Idempotency**: Ensure all operations are idempotent
+5. **Audit Logging**: Log all financial operations for compliance
+6. **Rate Limiting**: Protect API endpoints from abuse
+7. **Secrets Management**: Use AWS Secrets Manager, Vault, or similar
+
+## License
+
+MIT
