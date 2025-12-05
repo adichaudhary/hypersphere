@@ -19,12 +19,17 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "NfcReader"
-        // Simple SELECT APDU that will trigger a response from the HCE service
+        // SELECT APDU with AID to trigger the HCE service
+        // Format: CLA INS P1 P2 Lc [AID] Le
+        // 00 A4 04 00 07 F0010203040506 00
         private val SELECT_APDU = byteArrayOf(
-            0x00.toByte(),
-            0xA4.toByte(),
-            0x04.toByte(),
-            0x00.toByte()
+            0x00.toByte(),  // CLA
+            0xA4.toByte(),  // INS (SELECT)
+            0x04.toByte(),  // P1 (Select by name)
+            0x00.toByte(),  // P2
+            0x07.toByte(),  // Lc (Length of AID)
+            0xF0.toByte(), 0x01.toByte(), 0x02.toByte(), 0x03.toByte(), 0x04.toByte(), 0x05.toByte(), 0x06.toByte(), // AID
+            0x00.toByte()   // Le (Expected length, 0 = maximum)
         )
     }
 
@@ -87,12 +92,16 @@ class MainActivity : AppCompatActivity() {
             }
 
             isoDep.connect()
+            isoDep.timeout = 5000 // 5 second timeout
             Log.d(TAG, "Connected to IsoDep tag")
+            Log.d(TAG, "Sending SELECT APDU: ${SELECT_APDU.toHexString()}")
 
             val response = isoDep.transceive(SELECT_APDU)
             isoDep.close()
 
-            Log.d(TAG, "Received response: ${response.toHexString()}")
+            Log.d(TAG, "Received response length: ${response.size}")
+            Log.d(TAG, "Received response hex: ${response.toHexString()}")
+            Log.d(TAG, "Response as string (raw): ${String(response, Charsets.UTF_8)}")
 
             // Strip off trailing 90 00 if present
             val payload = if (response.size > 2 &&
@@ -104,13 +113,34 @@ class MainActivity : AppCompatActivity() {
                 response
             }
 
-            val url = String(payload, Charsets.UTF_8)
-            Log.d(TAG, "Parsed URL: $url")
+            // Convert to string and clean it up
+            var url = String(payload, Charsets.UTF_8)
+            
+            // Remove null bytes and other control characters
+            url = url.replace("\u0000", "")
+            // Trim whitespace
+            url = url.trim()
+            // Remove any trailing status codes that might have been parsed as text
+            url = url.replace(Regex("90\\s*00$"), "").trim()
+            
+            Log.d(TAG, "Raw payload length: ${payload.size}")
+            Log.d(TAG, "Cleaned URL: '$url'")
+            Log.d(TAG, "URL length: ${url.length}")
 
             runOnUiThread {
                 binding.statusText.text = "Received URL:\n$url"
             }
 
+            // Validate URL before opening
+            if (url.isBlank() || url.length < 10) {
+                Log.e(TAG, "URL is invalid after parsing: '$url'")
+                runOnUiThread {
+                    Toast.makeText(this, "Error: Received invalid URL: '$url'", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+
+            // Open URL via Intent.ACTION_VIEW
             openUrl(url)
         } catch (e: Exception) {
             Log.e(TAG, "Error handling tag", e)
@@ -120,15 +150,43 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Open URL via Intent.ACTION_VIEW
+     */
     private fun openUrl(url: String) {
         try {
+            Log.d(TAG, "Opening URL: $url")
+            
             val uri = Uri.parse(url)
+            
+            // Verify URI is valid
+            if (uri.scheme == null) {
+                throw IllegalArgumentException("Invalid URI: scheme is null")
+            }
+            
+            Log.d(TAG, "Parsed URI - scheme: ${uri.scheme}, host: ${uri.host}, path: ${uri.path}")
+            
+            // Create intent to open URL
             val intent = Intent(Intent.ACTION_VIEW, uri)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addCategory(Intent.CATEGORY_BROWSABLE)
+            intent.addCategory(Intent.CATEGORY_DEFAULT)
+            
             startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Invalid URL", e)
+            
+            Log.d(TAG, "URL opened successfully")
             runOnUiThread {
-                Toast.makeText(this, "Invalid URL", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Opening in Phantom...", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.e(TAG, "No app found to handle URL: ${e.message}")
+            runOnUiThread {
+                Toast.makeText(this, "No app found to open URL. Please install Phantom wallet.", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening URL: $url", e)
+            runOnUiThread {
+                Toast.makeText(this, "Error opening URL: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
