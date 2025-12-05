@@ -56,6 +56,7 @@ export async function getPaymentStatus(paymentIntentId: string) {
   }
 }
 
+
 /**
  * Format transaction signature for display
  */

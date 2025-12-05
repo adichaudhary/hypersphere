@@ -24,7 +24,7 @@ try {
         -Body $createBody
 
     $paymentId = $createResponse.id
-    Write-Host "✓ Payment intent created: $paymentId" -ForegroundColor Green
+    Write-Host "Success: Payment intent created - $paymentId" -ForegroundColor Green
 
     # Generate mock transaction signature
     $chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -39,15 +39,14 @@ try {
         -ContentType "application/json" `
         -Body $confirmBody
 
-    Write-Host "✓ Payment confirmed!" -ForegroundColor Green
+    Write-Host "Success: Payment confirmed!" -ForegroundColor Green
     Write-Host "  Transaction: $txSignature" -ForegroundColor Gray
     Write-Host ""
     Write-Host "View in dashboard: http://localhost:5173" -ForegroundColor Yellow
 
 } catch {
-    Write-Host "✗ Error: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "Make sure the backend is running:" -ForegroundColor Yellow
-    Write-Host "  cd backend && npm start" -ForegroundColor Gray
+    Write-Host "  cd backend; npm start" -ForegroundColor Gray
 }
-

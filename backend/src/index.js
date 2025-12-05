@@ -18,12 +18,6 @@ import {
   verifyTransactionSignature,
   verifyTokenTransfer,
 } from './solanaListener.js';
-import {
-  linkMerchantToCircle,
-  handlePaymentConfirmed,
-  getMerchantDashboardReport,
-  initializeCircleDatabase,
-} from './circleIntegration.js';
 
 dotenv.config();
 
@@ -47,9 +41,7 @@ async function initialize() {
     await initializeDatabase();
     console.log('✓ Database initialized');
 
-    // Initialize Circle database tables
-    await initializeCircleDatabase();
-    console.log('✓ Circle database initialized');
+    // Core payment system initialized
 
     // Verify Solana connection
     const connection = getConnection();
@@ -292,60 +284,6 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-/**
- * POST /merchants/:id/circle/link
- * Link merchant to Circle account
- */
-app.post('/merchants/:id/circle/link', async (req, res) => {
-  try {
-    const { id: merchantId } = req.params;
-    const { name, email } = req.body;
-
-    if (!name || !email) {
-      return res.status(400).json({
-        error: 'Missing required fields: name, email',
-      });
-    }
-
-    const result = await linkMerchantToCircle(merchantId, name, email);
-    res.status(201).json(result);
-  } catch (error) {
-    console.error('Error linking merchant to Circle:', error);
-    res.status(500).json({ error: 'Failed to link merchant to Circle' });
-  }
-});
-
-/**
- * GET /merchants/:id/dashboard/report
- * Get merchant dashboard report with volume and transaction data
- */
-app.get('/merchants/:id/dashboard/report', async (req, res) => {
-  try {
-    const { id: merchantId } = req.params;
-
-    const report = await getMerchantDashboardReport(merchantId);
-    res.json(report);
-  } catch (error) {
-    console.error('Error getting merchant report:', error);
-    res.status(500).json({ error: 'Failed to get merchant report' });
-  }
-});
-
-/**
- * GET /merchants/:id/dashboard
- * Alternative endpoint name for merchant dashboard
- */
-app.get('/merchants/:id/dashboard', async (req, res) => {
-  try {
-    const { id: merchantId } = req.params;
-
-    const report = await getMerchantDashboardReport(merchantId);
-    res.json(report);
-  } catch (error) {
-    console.error('Error getting merchant dashboard:', error);
-    res.status(500).json({ error: 'Failed to get merchant dashboard' });
-  }
-});
 
 /**
  * Setup payment watcher for a specific payment intent
