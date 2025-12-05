@@ -27,6 +27,8 @@ import java.io.OutputStreamWriter
 import java.util.UUID
 import kotlin.concurrent.thread
 import kotlin.math.round
+import java.math.BigDecimal
+import java.math.BigInteger
 
 class MainActivity : AppCompatActivity() {
 
@@ -51,8 +53,15 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_NAME = "hce_sender_prefs"
         const val KEY_RECIPIENT = "recipient"
         const val KEY_AMOUNT = "amount"
+        const val KEY_TOTAL_USDC_AMOUNT = "total_usdc_amount"  // Total amount including tip
         const val KEY_CHAIN = "selected_chain"
+        const val KEY_MERCHANT_BASE_WALLET = "merchant_base_wallet"
+        const val KEY_MERCHANT_ETH_WALLET = "merchant_eth_wallet"
         const val TAG = "MainActivity"
+        
+        // Default EVM merchant wallet addresses (fallback if not set in preferences)
+        private const val DEFAULT_BASE_WALLET = "0x7063948e82549732aF860b2095918669c37C4351"
+        private const val DEFAULT_ETH_WALLET = "0x7063948e82549732aF860b2095918669c37C4351"
 
         // Merchant ID (used for API calls - should match frontend)
         const val MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U"
@@ -187,7 +196,11 @@ class MainActivity : AppCompatActivity() {
         
         // Save total amount to SharedPreferences (this is what gets sent via NFC)
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        prefs.edit().putString(KEY_AMOUNT, String.format("%.2f", totalAmount)).apply()
+        val amountStr = String.format("%.2f", totalAmount)
+        prefs.edit()
+            .putString(KEY_AMOUNT, amountStr)
+            .putString(KEY_TOTAL_USDC_AMOUNT, amountStr)  // Also save as total_usdc_amount for EVM chains
+            .apply()
         
         // Update tip button states
         updateTipButtonStates()
@@ -509,33 +522,99 @@ class MainActivity : AppCompatActivity() {
         val amount = String.format("%.2f", totalAmount)
         val chain = selectedChain.name
         
-        // Get recipient wallet from preferences
+        // Get recipient wallet from preferences (for Solana)
         val recipientWallet = prefs.getString(KEY_RECIPIENT, MERCHANT_WALLET) ?: MERCHANT_WALLET
         
         return when (chain) {
             "SOL" -> {
-                // Solana Pay format for Phantom on Solana network
+                // Solana Pay format for Phantom on Solana network - UNCHANGED
                 val labelEncoded = Uri.encode("Hypersphere")
                 val messageEncoded = Uri.encode("Tap to Pay")
                 val usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
                 "solana:$recipientWallet?amount=$amount&spl-token=$usdcMint&label=$labelEncoded&message=$messageEncoded"
             }
             "ETH" -> {
-                // MetaMask format for Ethereum mainnet - uses CCTP service to ensure correct network
-                cctpService.generatePaymentUrl("ETH", recipientWallet, totalAmount, false)
+                // ETH uses EIP-681 format for USDC transfer on Ethereum mainnet
+                // Automatically opens MetaMask with pre-filled USDC transaction, similar to Solana Pay
+                generateEvmMetaMaskUrl(prefs, PaymentCardService.ETHEREUM, DEFAULT_ETH_WALLET)
             }
             "BASE" -> {
-                // Base Pay format - opens MetaMask on Base network and prompts transaction
-                // Uses CCTP service to ensure Base network USDC contract
-                cctpService.generatePaymentUrl("BASE", recipientWallet, totalAmount, false)
+                // BASE uses official MetaMask ERC-20 deeplink format
+                generateEvmMetaMaskUrl(prefs, PaymentCardService.BASE, DEFAULT_BASE_WALLET)
             }
             else -> {
+                // Default to Solana Pay (Phantom) - UNCHANGED
                 val labelEncoded = Uri.encode("Hypersphere")
                 val messageEncoded = Uri.encode("Tap to Pay")
                 val usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
                 "solana:$recipientWallet?amount=$amount&spl-token=$usdcMint&label=$labelEncoded&message=$messageEncoded"
             }
         }
+    }
+    
+    /**
+     * Generate EIP-681 URI for ERC-20 token transfer on EVM chains (Ethereum/Base)
+     * Uses EIP-681 format: ethereum:<tokenAddress>@<chainId>/transfer?address=<recipient>&uint256=<amount>
+     * Note: "pay-" prefix is for native ETH transfers. For ERC-20 tokens, use contract address directly.
+     * This automatically opens MetaMask with a pre-filled USDC transfer transaction, similar to Solana Pay with Phantom
+     */
+    private fun generateEvmMetaMaskUrl(
+        prefs: android.content.SharedPreferences,
+        config: EvmChainConfig,
+        defaultMerchant: String
+    ): String {
+        // Read merchant wallet address from preferences
+        val merchantWallet = prefs.getString(config.merchantKey, defaultMerchant) ?: defaultMerchant
+        
+        // Use totalAmount (includes tip if any) as string
+        val amountStr = String.format("%.2f", totalAmount)
+        
+        // Parse with BigDecimal and convert to smallest units
+        // USDC on Ethereum has 6 decimals, USDBC on Base also has 6 decimals
+        val decimals = 6
+        val amountDecimal = try {
+            BigDecimal(amountStr)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse amount '$amountStr', using totalAmount: $totalAmount", e)
+            BigDecimal(totalAmount.toString())
+        }
+        
+        // Validate amount is > 0
+        val validAmount = if (amountDecimal <= BigDecimal.ZERO) {
+            Log.w(TAG, "Invalid amount: $amountDecimal, using totalAmount: $totalAmount")
+            BigDecimal(totalAmount.toString())
+        } else {
+            amountDecimal
+        }
+        
+        // Convert to base units (smallest units)
+        val baseUnits = validAmount
+            .multiply(BigDecimal.TEN.pow(decimals))
+            .toBigInteger()
+        
+        val amountParam = baseUnits.toString() // this is uint256
+        
+        // Ensure wallet address is lowercase and valid
+        val wallet = if (merchantWallet.startsWith("0x")) {
+            merchantWallet.lowercase()
+        } else {
+            Log.w(TAG, "Wallet doesn't start with 0x: $merchantWallet")
+            merchantWallet.lowercase()
+        }
+        
+        // Construct EIP-681 URI for ERC-20 token transfer
+        // Format: ethereum:<tokenAddress>@<chainId>/transfer?address=<recipient>&uint256=<amount>
+        // Note: "pay-" prefix is for native ETH, not ERC-20 tokens. For ERC-20, use contract address directly.
+        // This format automatically opens MetaMask with a pre-filled USDC transfer transaction, similar to Solana Pay
+        val url = "ethereum:${config.usdcContract}@${config.chainId}/transfer" +
+                "?address=$wallet" +
+                "&uint256=$amountParam"
+        
+        val tokenName = if (config.chainId == 8453) "USDBC" else "USDC"
+        Log.d(TAG, "Generated ${config.chainId} $tokenName EIP-681 URI: amount=$amountStr $tokenName, baseUnits=$amountParam, merchant=$wallet")
+        Log.d(TAG, "Full URL: $url")
+        
+        return url
     }
     
     /**
@@ -596,9 +675,16 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "This should create a transaction request in MetaMask with amount: $totalAmount USDC")
             }
             
-            val walletApp = when (uri.scheme) {
-                "solana" -> "Phantom"
-                "ethereum" -> {
+            val walletApp = when {
+                uri.scheme == "solana" -> "Phantom"
+                uri.scheme == "https" && (uri.host?.contains("metamask") == true || uri.host?.contains("link.metamask.io") == true) -> {
+                    when (selectedChain) {
+                        Chain.BASE -> "MetaMask (Base Pay)"
+                        Chain.ETH -> "MetaMask (Ethereum)"
+                        else -> "MetaMask"
+                    }
+                }
+                uri.scheme == "ethereum" -> {
                     when (selectedChain) {
                         Chain.BASE -> "MetaMask (Base Pay)"
                         else -> "MetaMask"

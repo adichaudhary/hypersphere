@@ -16,7 +16,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@solana/spl-token": "^0.3.10",
+    "@solana/spl-token": "^0.1.8",
     "@solana/web3.js": "^1.90.0",
     "axios": "^1.6.2",
     "cors": "^2.8.5",
