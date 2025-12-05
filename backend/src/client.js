@@ -6,7 +6,7 @@
 import fetch from 'node-fetch';
 import * as web3 from '@solana/web3.js';
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = 'https://dovie-overspeedy-nonblunderingly.ngrok-free.dev';
 
 export class TapToPayClient {
   constructor(connection, wallet) {

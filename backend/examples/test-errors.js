@@ -7,7 +7,7 @@
 
 import fetch from 'node-fetch';
 
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = 'https://dovie-overspeedy-nonblunderingly.ngrok-free.dev';
 
 class ErrorTestRunner {
   constructor() {

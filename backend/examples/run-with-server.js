@@ -8,7 +8,7 @@ import fs from 'fs';
 const SERVER_CMD = 'node';
 const SERVER_ARGS = ['src/index.js'];
 const SERVER_CWD = join(process.cwd());
-const HEALTH_URL = 'http://localhost:3001/health';
+const HEALTH_URL = 'https://dovie-overspeedy-nonblunderingly.ngrok-free.dev/health';
 
 function waitForHealth(timeout = 30000, interval = 500) {
   const start = Date.now();

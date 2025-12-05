@@ -8,7 +8,7 @@
 import fetch from 'node-fetch';
 import { performance } from 'perf_hooks';
 
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = 'https://dovie-overspeedy-nonblunderingly.ngrok-free.dev';
 const MERCHANT_ID = `test-merchant-${Date.now()}`;
 const SOL_USD_RATE = 180;
 

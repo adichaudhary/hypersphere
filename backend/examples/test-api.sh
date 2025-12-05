@@ -2,7 +2,7 @@
 # Tap-to-Pay API Test Commands
 # Use these curl commands to test the backend
 
-BASE_URL="http://localhost:3001"
+BASE_URL="https://dovie-overspeedy-nonblunderingly.ngrok-free.dev"
 
 echo "🏥 Testing Tap-to-Pay Backend API"
 echo ""

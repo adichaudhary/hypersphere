@@ -3,7 +3,7 @@
  * Run from backend directory: node examples/test-api.js
  */
 
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'https://dovie-overspeedy-nonblunderingly.ngrok-free.dev';
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
