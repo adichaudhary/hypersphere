@@ -213,6 +213,12 @@ export function Overview() {
                   borderRadius: "8px",
                   color: "#E7ECEF",
                 }}
+                labelStyle={{
+                  color: "#E7ECEF",
+                }}
+                itemStyle={{
+                  color: "#E7ECEF",
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
