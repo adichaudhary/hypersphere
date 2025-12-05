@@ -10,6 +10,9 @@ import {
   updatePaymentIntentStatus,
   getMerchantPayments,
   initializeDatabase,
+  getDatabase,
+  updateMerchantSettings,
+  saveMerchant,
 } from './database.js';
 import {
   getConnection,
@@ -17,6 +20,7 @@ import {
   watchPaymentIntent,
   verifyTransactionSignature,
   verifyTokenTransfer,
+  getPaymentIntentFromSolana,
 } from './solanaListener.js';
 
 dotenv.config();
@@ -62,7 +66,7 @@ async function initialize() {
  */
 app.post('/payment_intents', async (req, res) => {
   try {
-    const { amount, merchant_id, currency } = req.body;
+    const { amount, merchant_id, currency, tip_amount, chain } = req.body;
 
     // Validate input
     if (amount === undefined || merchant_id === undefined) {
@@ -101,11 +105,22 @@ app.post('/payment_intents', async (req, res) => {
       token_mint = process.env.USDC_MINT || null;
       token_decimals = process.env.USDC_DECIMALS ? parseInt(process.env.USDC_DECIMALS, 10) : 6;
 
-      // Try to use merchant wallet address as recipient if merchant exists and is linked
+      // Get chain-specific wallet address from merchant settings
       try {
         const merchant = await getMerchant(merchant_id);
-        if (merchant && merchant.wallet_address) {
-          recipient_address = merchant.wallet_address;
+        if (merchant) {
+          // Determine which wallet address to use based on chain
+          const chainUpper = chain ? String(chain).toUpperCase() : 'SOL';
+          if (chainUpper === 'SOL' || chainUpper === 'SOLANA') {
+            recipient_address = merchant.solana_address || merchant.wallet_address || null;
+          } else if (chainUpper === 'ETH' || chainUpper === 'ETHEREUM') {
+            recipient_address = merchant.ethereum_address || null;
+          } else if (chainUpper === 'BASE') {
+            recipient_address = merchant.base_address || null;
+          } else {
+            // Fallback to default wallet address
+            recipient_address = merchant.wallet_address || null;
+          }
         }
       } catch (e) {
         console.warn('Could not fetch merchant for recipient assignment', e);
@@ -123,16 +138,42 @@ app.post('/payment_intents', async (req, res) => {
       token_mint,
       recipient_address,
       token_decimals,
+      tip_amount: tip_amount || 0,
+      chain: chain || 'Solana',
     };
 
     // Save to database
     const saved = await savePaymentIntent(paymentIntent);
 
-    // Start watching for payment confirmation on Solana
-    setupPaymentWatcher(id, merchant_id);
+    // Derive PDA for on-chain account
+    let pdaAddress = null;
+    let bumpValue = null;
+    try {
+      const { derivePaymentIntentPDA } = await import('./solanaListener.js');
+      const { pda, bump } = derivePaymentIntentPDA(id);
+      pdaAddress = pda.toBase58();
+      bumpValue = bump;
+      console.log(`✓ Derived PDA for ${id}: ${pdaAddress}, bump: ${bump}`);
+    } catch (error) {
+      console.error('✗ Error deriving PDA:', error.message);
+      console.error('  Stack:', error.stack);
+      // Continue without PDA - account can be created later
+    }
 
-    // Return saved row (includes timestamps)
-    res.status(201).json(sanitizeObject(saved));
+    // Start watching for payment confirmation on Solana (non-blocking)
+    setupPaymentWatcher(id, merchant_id).catch(error => {
+      console.error('Error setting up payment watcher:', error);
+      // Continue anyway - watcher is not critical for payment intent creation
+    });
+
+    // Return saved row (includes timestamps) and PDA info for on-chain account creation
+    res.status(201).json(sanitizeObject({
+      ...saved,
+      pda: pdaAddress,
+      bump: bumpValue,
+      // Note: The PaymentIntent account should be created on-chain by calling
+      // the create_payment_intent instruction with the merchant's wallet
+    }));
   } catch (error) {
     console.error('Error creating payment intent:', error);
     res.status(500).json({ error: 'Failed to create payment intent' });
@@ -158,12 +199,30 @@ app.get('/payment_intents/:id/status', async (req, res) => {
       });
     }
 
+    // Also check on-chain status if available
+    let onChainData = null;
+    try {
+      onChainData = await getPaymentIntentFromSolana(id);
+    } catch (err) {
+      // On-chain account may not exist yet, that's okay
+      console.debug(`On-chain account not found for ${id}:`, err.message);
+    }
+
+    // Prefer on-chain status if available, otherwise use database
+    const status = onChainData?.status || paymentIntent.status || 'pending';
+    const tx_signature = onChainData?.tx_signature || paymentIntent.tx_signature || null;
+
     res.json(sanitizeObject({
       id: paymentIntent.id,
-      status: paymentIntent.status || 'pending',
-      tx_signature: paymentIntent.tx_signature || null,
+      status,
+      tx_signature,
       amount: paymentIntent.amount,
       merchant_id: paymentIntent.merchant_id,
+      tip_amount: paymentIntent.tip_amount || 0,
+      chain: paymentIntent.chain || 'Solana',
+      on_chain: onChainData !== null,
+      pda: onChainData?.pda || null,
+      currency: paymentIntent.currency || 'SOL',
       created_at: paymentIntent.created_at,
       updated_at: paymentIntent.updated_at,
     }));
@@ -235,6 +294,9 @@ app.get('/merchants/:id/payments', async (req, res) => {
         id: p.id,
         amount: p.amount,
         status: p.status,
+        tip_amount: p.tip_amount || 0,
+        chain: p.chain || 'Solana',
+        currency: p.currency || 'SOL',
         created_at: p.created_at,
         updated_at: p.updated_at,
         tx_signature: p.tx_signature,
@@ -278,6 +340,232 @@ app.get('/pay/:id', async (req, res) => {
 });
 
 /**
+ * DELETE /merchants/:id/payments
+ * Delete all payments for a merchant (for testing/cleanup)
+ */
+app.delete('/merchants/:id/payments', async (req, res) => {
+  try {
+    const { id: merchant_id } = req.params;
+    
+    // Get database connection
+    const db = await getDatabase();
+    
+    db.run('DELETE FROM payment_intents WHERE merchant_id = ?', [merchant_id], function(err) {
+      db.close();
+      if (err) {
+        console.error('Error deleting payments:', err);
+        return res.status(500).json({ error: 'Failed to delete payments' });
+      }
+      res.json({ 
+        success: true, 
+        deleted_count: this.changes,
+        merchant_id 
+      });
+    });
+  } catch (error) {
+    console.error('Error deleting payments:', error);
+    res.status(500).json({ error: 'Failed to delete payments' });
+  }
+});
+
+/**
+ * POST /merchants/:id/payments/mark-paid
+ * Mark all pending payments as paid (for testing purposes)
+ */
+app.post('/merchants/:id/payments/mark-paid', async (req, res) => {
+  try {
+    const { id: merchant_id } = req.params;
+    
+    // Get database connection
+    const db = await getDatabase();
+    
+    // Generate mock transaction signatures for payments that don't have one
+    db.all(
+      `SELECT id FROM payment_intents WHERE merchant_id = ? AND status != 'paid'`,
+      [merchant_id],
+      (err, rows) => {
+        if (err) {
+          db.close();
+          return res.status(500).json({ error: 'Failed to fetch payments' });
+        }
+
+        if (rows.length === 0) {
+          db.close();
+          return res.json({ 
+            success: true, 
+            updated_count: 0,
+            message: 'No pending payments to update'
+          });
+        }
+
+        let completed = 0;
+        const errors = [];
+
+        rows.forEach((row) => {
+          const txSignature = crypto.randomBytes(44).toString('base64').replace(/[+/=]/g, '').substring(0, 88);
+          
+          db.run(
+            `UPDATE payment_intents 
+             SET status = 'paid', 
+                 tx_signature = COALESCE(tx_signature, ?),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND status != 'paid'`,
+            [txSignature, row.id],
+            function(updateErr) {
+              if (updateErr) {
+                errors.push({ id: row.id, error: updateErr.message });
+              } else {
+                completed++;
+              }
+
+              // Check if all updates are done
+              if (completed + errors.length === rows.length) {
+                db.close();
+                res.json({ 
+                  success: true, 
+                  updated_count: completed,
+                  total_pending: rows.length,
+                  errors: errors.length > 0 ? errors : undefined
+                });
+              }
+            }
+          );
+        });
+      }
+    );
+  } catch (error) {
+    console.error('Error marking payments as paid:', error);
+    res.status(500).json({ error: 'Failed to mark payments as paid' });
+  }
+});
+
+/**
+ * GET /merchants/:id/settings
+ * Get merchant settings/profile
+ */
+app.get('/merchants/:id/settings', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const merchant = await getMerchant(id);
+    
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    res.json(sanitizeObject({
+      id: merchant.id,
+      name: merchant.name || '',
+      email: merchant.email || '',
+      business_type: merchant.business_type || '',
+      wallet_address: merchant.wallet_address || '',
+      solana_address: merchant.solana_address || merchant.wallet_address || '',
+      base_address: merchant.base_address || '',
+      ethereum_address: merchant.ethereum_address || '',
+    }));
+  } catch (error) {
+    console.error('Error fetching merchant settings:', error);
+    res.status(500).json({ error: 'Failed to fetch merchant settings' });
+  }
+});
+
+/**
+ * PUT /merchants/:id/settings
+ * Update merchant settings/profile
+ */
+app.put('/merchants/:id/settings', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, business_type, solana_address, base_address, ethereum_address } = req.body;
+
+    console.log('Updating merchant settings:', { id, name, email, business_type, solana_address, base_address, ethereum_address });
+
+    // Ensure merchant exists
+    let merchant = await getMerchant(id);
+    if (!merchant) {
+      console.log('Merchant does not exist, creating new merchant');
+      // Create merchant if doesn't exist
+      merchant = {
+        id,
+        name: name || 'Merchant',
+        wallet_address: solana_address || id, // Use solana_address as default wallet_address
+        email: email || null,
+        business_type: business_type || null,
+        solana_address: solana_address || null,
+        base_address: base_address || null,
+        ethereum_address: ethereum_address || null,
+      };
+      await saveMerchant(merchant);
+      console.log('Merchant created successfully');
+      
+      // Return the created merchant
+      const createdMerchant = await getMerchant(id);
+      return res.json(sanitizeObject({
+        success: true,
+        merchant: createdMerchant,
+      }));
+    } else {
+      console.log('Merchant exists, updating settings');
+      // Update settings
+      const updated = await updateMerchantSettings(id, {
+        name,
+        email,
+        business_type,
+        solana_address,
+        base_address,
+        ethereum_address,
+      });
+
+      console.log('Merchant settings updated successfully');
+      return res.json(sanitizeObject({
+        success: true,
+        merchant: updated,
+      }));
+    }
+  } catch (error) {
+    console.error('Error updating merchant settings:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: `Failed to update merchant settings: ${error.message}` });
+  }
+});
+
+/**
+ * GET /merchants/:id/wallet/:chain
+ * Get wallet address for a specific chain
+ */
+app.get('/merchants/:id/wallet/:chain', async (req, res) => {
+  try {
+    const { id, chain } = req.params;
+    const merchant = await getMerchant(id);
+    
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    // Map chain names to database fields
+    const chainMap = {
+      'SOL': 'solana_address',
+      'Solana': 'solana_address',
+      'ETH': 'ethereum_address',
+      'Ethereum': 'ethereum_address',
+      'BASE': 'base_address',
+      'Base': 'base_address',
+    };
+
+    const chainField = chainMap[chain] || 'solana_address';
+    const walletAddress = merchant[chainField] || merchant.wallet_address || '';
+
+    res.json({
+      merchant_id: id,
+      chain: chain,
+      wallet_address: walletAddress,
+    });
+  } catch (error) {
+    console.error('Error fetching wallet address:', error);
+    res.status(500).json({ error: 'Failed to fetch wallet address' });
+  }
+});
+
+/**
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
@@ -288,7 +576,7 @@ app.get('/health', (req, res) => {
 /**
  * Setup payment watcher for a specific payment intent
  */
-function setupPaymentWatcher(paymentIntentId, merchantId) {
+async function setupPaymentWatcher(paymentIntentId, merchantId) {
   try {
     // Check if already watching
     if (activeWatchers.has(paymentIntentId)) {
@@ -296,7 +584,7 @@ function setupPaymentWatcher(paymentIntentId, merchantId) {
     }
 
     // Start watching the Solana account
-    const unsubscribe = watchPaymentIntent(paymentIntentId, async (update) => {
+    const unsubscribe = await watchPaymentIntent(paymentIntentId, async (update) => {
       console.log(`Payment update for ${paymentIntentId}:`, update);
 
       // If status changed to paid, update database
@@ -305,9 +593,9 @@ function setupPaymentWatcher(paymentIntentId, merchantId) {
           await updatePaymentIntentStatus(
             paymentIntentId,
             'paid',
-            update.tx_signature
+            update.tx_signature || ''
           );
-          console.log(`✓ Payment confirmed: ${paymentIntentId}`);
+          console.log(`✓ Payment confirmed on-chain: ${paymentIntentId}`);
 
           // Stop watching after payment confirmed
           if (unsubscribe) {

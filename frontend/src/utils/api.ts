@@ -11,6 +11,8 @@ export interface Payment {
   tx_signature: string | null;
   merchant_id?: string;
   currency?: string;
+  tip_amount?: number;
+  chain?: string;
 }
 
 export interface MerchantPaymentsResponse {

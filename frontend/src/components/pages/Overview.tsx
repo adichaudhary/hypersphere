@@ -43,26 +43,81 @@ export function Overview() {
   const totalSalesToday = todayPayments.reduce((sum, p) => sum + p.amount, 0);
   const transactionsToday = todayPayments.length;
 
-  // Chain distribution (dummy data for now as currency info might not be complete)
-  const chainData = [
-    { name: "Solana", value: 100, color: "#00E7FF" },
-  ];
+  // Calculate chain distribution from actual payments
+  const chainTotals = payments.reduce((acc, p) => {
+    const chain = p.chain || (p.currency === "USDC" ? "Solana" : p.currency || "Solana");
+    if (!acc[chain]) {
+      acc[chain] = 0;
+    }
+    acc[chain] += p.amount;
+    return acc;
+  }, {} as Record<string, number>);
 
-  // Sales data (simplified - showing actual payment times)
-  const salesData24h = Array.from({ length: 6 }, (_, i) => ({
-    time: `${i * 4}:00`,
-    value: 0
+  const totalByChain = Object.values(chainTotals).reduce((sum, val) => sum + val, 0);
+  const chainData = Object.entries(chainTotals).map(([name, value]) => ({
+    name,
+    value: totalByChain > 0 ? Math.round((value / totalByChain) * 100) : 0,
+    amount: value,
+    color: name === "Solana" || name === "SOL" ? "#00E7FF" : 
+           name === "Ethereum" || name === "ETH" ? "#627EEA" :
+           name === "Base" || name === "BASE" ? "#0052FF" : "#00E7FF"
   }));
 
-  const salesData7d = Array.from({ length: 7 }, (_, i) => ({
-    time: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i],
-    value: 0
-  }));
+  // Calculate sales data from actual payments
+  const now = new Date();
+  const salesData24h = Array.from({ length: 6 }, (_, i) => {
+    const hourStart = new Date(now);
+    hourStart.setHours(now.getHours() - (5 - i) * 4, 0, 0, 0);
+    const hourEnd = new Date(hourStart);
+    hourEnd.setHours(hourStart.getHours() + 4);
+    const sales = payments
+      .filter(p => {
+        const pDate = new Date(p.created_at);
+        return pDate >= hourStart && pDate < hourEnd;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+    return {
+      time: `${hourStart.getHours()}:00`,
+      value: sales
+    };
+  });
 
-  const salesData30d = Array.from({ length: 4 }, (_, i) => ({
-    time: `Week ${i + 1}`,
-    value: 0
-  }));
+  const salesData7d = Array.from({ length: 7 }, (_, i) => {
+    const dayStart = new Date(now);
+    dayStart.setDate(now.getDate() - (6 - i));
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
+    const sales = payments
+      .filter(p => {
+        const pDate = new Date(p.created_at);
+        return pDate >= dayStart && pDate < dayEnd;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return {
+      time: dayNames[dayStart.getDay()],
+      value: sales
+    };
+  });
+
+  const salesData30d = Array.from({ length: 4 }, (_, i) => {
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - (3 - i) * 7);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    const sales = payments
+      .filter(p => {
+        const pDate = new Date(p.created_at);
+        return pDate >= weekStart && pDate < weekEnd;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+    return {
+      time: `Week ${i + 1}`,
+      value: sales
+    };
+  });
   
   const getSalesData = () => {
     switch (timeRange) {
@@ -72,17 +127,18 @@ export function Overview() {
     }
   };
 
-  // Get latest 8 transactions for display
+  // Get latest 8 confirmed transactions for display
   const recentTransactions = payments
+    .filter(p => p.status === "paid") // Only show confirmed/paid transactions
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 8)
     .map(payment => ({
       time: new Date(payment.created_at).toLocaleTimeString('en-US', { hour12: false }),
       amount: formatAmount(payment.amount),
-      chain: payment.currency || "Solana",
-      tip: "0.00",
+      chain: payment.chain || (payment.currency === "USDC" ? "Solana" : payment.currency || "Solana"),
+      tip: formatAmount(payment.tip_amount || 0),
       signature: formatTxSignature(payment.tx_signature),
-      status: payment.status === "paid" ? "Confirmed" : "Pending",
+      status: "Confirmed",
     }));
 
   if (loading) {
@@ -125,7 +181,7 @@ export function Overview() {
         <MetricCard 
           title="Multi-Chain USDC" 
           value={`$${formatAmount(totalSales)}`} 
-          subtitle="Solana 100%" 
+          subtitle={chainData.length > 0 ? `${chainData.map(c => c.name).join(", ")}` : "No chains"} 
         />
       </div>
 
@@ -160,12 +216,16 @@ export function Overview() {
             </PieChart>
           </ResponsiveContainer>
           <div className="flex justify-center gap-6 mt-4">
-            {chainData.map((chain) => (
-              <div key={chain.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: chain.color }} />
-                <span className="text-[#A5B6C8]">{chain.name} {chain.value}%</span>
-              </div>
-            ))}
+            {chainData.length > 0 ? (
+              chainData.map((chain) => (
+                <div key={chain.name} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: chain.color }} />
+                  <span className="text-[#A5B6C8]">{chain.name} {chain.value}% (${formatAmount(chain.amount)})</span>
+                </div>
+              ))
+            ) : (
+              <span className="text-[#A5B6C8]">No chain data available</span>
+            )}
           </div>
         </div>
 
