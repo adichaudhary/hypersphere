@@ -10,9 +10,16 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.util.Log
 import com.example.hcesender.databinding.ActivityMainBinding
 import java.text.NumberFormat
 import java.util.Locale
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.util.UUID
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -25,10 +32,14 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_NAME = "hce_sender_prefs"
         const val KEY_RECIPIENT = "recipient"
         const val KEY_AMOUNT = "amount"
+        const val TAG = "MainActivity"
 
         // Merchant wallet (hardcoded for consistency with PaymentCardService)
         const val MERCHANT_WALLET = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U"
         const val DEFAULT_AMOUNT = "0.01"
+        
+        // Backend API endpoint (update this with your actual backend URL)
+        const val BACKEND_URL = "http://10.0.2.2:3001" // Use 10.0.2.2 for Android emulator to access localhost
     }
 
     enum class PaymentState {
@@ -103,11 +114,87 @@ class MainActivity : AppCompatActivity() {
             val formattedAmount = NumberFormat.getCurrencyInstance(Locale.US).format(amountValue)
             binding.successAmount.text = "$formattedAmount charged"
             
+            // Send payment data to backend
+            sendPaymentToBackend(amountValue)
+            
             // Reset to idle after 3 seconds
             handler.postDelayed({
                 setState(PaymentState.IDLE)
             }, 3000)
         }
+    }
+
+    private fun sendPaymentToBackend(amount: Double) {
+        // Send payment data to backend in a background thread
+        thread {
+            try {
+                Log.d(TAG, "Sending payment to backend: amount=$amount, merchant=$MERCHANT_WALLET")
+                
+                // First, create a payment intent
+                val createUrl = URL("$BACKEND_URL/payment_intents")
+                val createConnection = createUrl.openConnection() as HttpURLConnection
+                createConnection.requestMethod = "POST"
+                createConnection.setRequestProperty("Content-Type", "application/json")
+                createConnection.doOutput = true
+
+                val createPayload = JSONObject().apply {
+                    put("amount", amount)
+                    put("merchant_id", MERCHANT_WALLET)
+                    put("currency", "USDC")
+                }
+
+                OutputStreamWriter(createConnection.outputStream).use { writer ->
+                    writer.write(createPayload.toString())
+                    writer.flush()
+                }
+
+                val createResponseCode = createConnection.responseCode
+                if (createResponseCode == HttpURLConnection.HTTP_CREATED) {
+                    val response = createConnection.inputStream.bufferedReader().readText()
+                    val responseJson = JSONObject(response)
+                    val paymentIntentId = responseJson.getString("id")
+                    
+                    Log.d(TAG, "Payment intent created: $paymentIntentId")
+                    
+                    // Simulate transaction confirmation (in real scenario, this would come from Solana)
+                    // Generate a fake transaction signature for demo purposes
+                    val txSignature = generateMockTxSignature()
+                    
+                    // Confirm the payment intent
+                    val confirmUrl = URL("$BACKEND_URL/payment_intents/$paymentIntentId/confirm")
+                    val confirmConnection = confirmUrl.openConnection() as HttpURLConnection
+                    confirmConnection.requestMethod = "POST"
+                    confirmConnection.setRequestProperty("Content-Type", "application/json")
+                    confirmConnection.doOutput = true
+
+                    val confirmPayload = JSONObject().apply {
+                        put("tx_signature", txSignature)
+                    }
+
+                    OutputStreamWriter(confirmConnection.outputStream).use { writer ->
+                        writer.write(confirmPayload.toString())
+                        writer.flush()
+                    }
+
+                    val confirmResponseCode = confirmConnection.responseCode
+                    if (confirmResponseCode == HttpURLConnection.HTTP_OK) {
+                        Log.d(TAG, "✓ Payment confirmed successfully with signature: $txSignature")
+                    } else {
+                        Log.e(TAG, "Failed to confirm payment: HTTP $confirmResponseCode")
+                    }
+                } else {
+                    Log.e(TAG, "Failed to create payment intent: HTTP $createResponseCode")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending payment to backend", e)
+            }
+        }
+    }
+    
+    private fun generateMockTxSignature(): String {
+        // Generate a realistic-looking Solana transaction signature (base58 format)
+        val chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        return (1..88).map { chars.random() }.joinToString("")
     }
 
     private fun setState(state: PaymentState) {

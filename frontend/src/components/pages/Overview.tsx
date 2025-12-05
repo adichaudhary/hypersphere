@@ -1,52 +1,68 @@
 import { MetricCard } from "../MetricCard";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { fetchMerchantPayments, formatAmount, formatTxSignature, type Payment } from "../../utils/api";
 
-const chainData = [
-  { name: "Solana", value: 72, color: "#00E7FF" },
-  { name: "Base", value: 20, color: "#3457FF" },
-  { name: "Ethereum", value: 8, color: "#7B93FF" },
-];
-
-const salesData24h = [
-  { time: "00:00", value: 1200 },
-  { time: "04:00", value: 800 },
-  { time: "08:00", value: 2400 },
-  { time: "12:00", value: 3600 },
-  { time: "16:00", value: 4200 },
-  { time: "20:00", value: 3800 },
-];
-
-const salesData7d = [
-  { time: "Mon", value: 12000 },
-  { time: "Tue", value: 15000 },
-  { time: "Wed", value: 18000 },
-  { time: "Thu", value: 16000 },
-  { time: "Fri", value: 22000 },
-  { time: "Sat", value: 25000 },
-  { time: "Sun", value: 20000 },
-];
-
-const salesData30d = [
-  { time: "Week 1", value: 65000 },
-  { time: "Week 2", value: 72000 },
-  { time: "Week 3", value: 85000 },
-  { time: "Week 4", value: 92000 },
-];
-
-const transactions = [
-  { time: "14:32:15", amount: "1,245.50", chain: "Solana", tip: "62.28", signature: "3Kx9...7mNp", status: "Confirmed" },
-  { time: "14:28:42", amount: "892.00", chain: "Base", tip: "44.60", signature: "0x8f...3c2a", status: "Confirmed" },
-  { time: "14:22:18", amount: "2,150.75", chain: "Solana", tip: "107.54", signature: "5Ty2...9pLm", status: "Confirmed" },
-  { time: "14:15:33", amount: "675.25", chain: "Ethereum", tip: "33.76", signature: "0x1a...5d8b", status: "Confirmed" },
-  { time: "14:08:09", amount: "1,520.00", chain: "Solana", tip: "76.00", signature: "7Qw4...2hRt", status: "Confirmed" },
-  { time: "13:58:21", amount: "3,200.50", chain: "Base", tip: "160.03", signature: "0x9c...7e4f", status: "Confirmed" },
-  { time: "13:45:55", amount: "450.00", chain: "Solana", tip: "22.50", signature: "2Mn8...4kVx", status: "Confirmed" },
-  { time: "13:32:14", amount: "1,875.25", chain: "Solana", tip: "93.76", signature: "6Pk5...1wCn", status: "Confirmed" },
-];
+// Merchant ID - update this with your actual merchant wallet address
+const MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
 
 export function Overview() {
   const [timeRange, setTimeRange] = useState<"24h" | "7d" | "30d">("24h");
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch payments from backend
+  useEffect(() => {
+    async function loadPayments() {
+      try {
+        const data = await fetchMerchantPayments(MERCHANT_ID);
+        setPayments(data.payments);
+      } catch (err) {
+        console.error("Failed to load payments:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPayments();
+    
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(loadPayments, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate metrics from real data
+  const totalSales = payments.reduce((sum, p) => sum + p.amount, 0);
+  const transactionCount = payments.length;
+  const avgOrderValue = transactionCount > 0 ? totalSales / transactionCount : 0;
+  
+  // Get today's transactions
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayPayments = payments.filter(p => new Date(p.created_at) >= today);
+  const totalSalesToday = todayPayments.reduce((sum, p) => sum + p.amount, 0);
+  const transactionsToday = todayPayments.length;
+
+  // Chain distribution (dummy data for now as currency info might not be complete)
+  const chainData = [
+    { name: "Solana", value: 100, color: "#00E7FF" },
+  ];
+
+  // Sales data (simplified - showing actual payment times)
+  const salesData24h = Array.from({ length: 6 }, (_, i) => ({
+    time: `${i * 4}:00`,
+    value: 0
+  }));
+
+  const salesData7d = Array.from({ length: 7 }, (_, i) => ({
+    time: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i],
+    value: 0
+  }));
+
+  const salesData30d = Array.from({ length: 4 }, (_, i) => ({
+    time: `Week ${i + 1}`,
+    value: 0
+  }));
   
   const getSalesData = () => {
     switch (timeRange) {
@@ -56,16 +72,61 @@ export function Overview() {
     }
   };
 
+  // Get latest 8 transactions for display
+  const recentTransactions = payments
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 8)
+    .map(payment => ({
+      time: new Date(payment.created_at).toLocaleTimeString('en-US', { hour12: false }),
+      amount: formatAmount(payment.amount),
+      chain: payment.currency || "Solana",
+      tip: "0.00",
+      signature: formatTxSignature(payment.tx_signature),
+      status: payment.status === "paid" ? "Confirmed" : "Pending",
+    }));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-[#A5B6C8]">Loading dashboard...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       {/* Metrics Row */}
       <div className="grid grid-cols-3 gap-6">
-        <MetricCard title="Total Sales Today" value="$24,532.50" subtitle="+12.5% from yesterday" />
-        <MetricCard title="Transactions Today" value="847" subtitle="+8.2% from yesterday" />
-        <MetricCard title="Average Order Value" value="$28.97" subtitle="+3.1% from yesterday" />
-        <MetricCard title="Returning Customer %" value="42.8%" subtitle="+2.4% from last week" />
-        <MetricCard title="Peak Transaction Time" value="16:00 – 18:00" subtitle="328 transactions" />
-        <MetricCard title="Multi-Chain USDC" value="$892,450" subtitle="Solana 72% · Base 20% · Ethereum 8%" />
+        <MetricCard 
+          title="Total Sales Today" 
+          value={`$${formatAmount(totalSalesToday)}`} 
+          subtitle={`${transactionsToday} transactions`} 
+        />
+        <MetricCard 
+          title="Total Transactions" 
+          value={transactionCount.toString()} 
+          subtitle="All time" 
+        />
+        <MetricCard 
+          title="Average Order Value" 
+          value={`$${formatAmount(avgOrderValue)}`} 
+          subtitle="Per transaction" 
+        />
+        <MetricCard 
+          title="Total Volume" 
+          value={`$${formatAmount(totalSales)}`} 
+          subtitle="All time sales" 
+        />
+        <MetricCard 
+          title="Payment Status" 
+          value={payments.filter(p => p.status === "paid").length.toString()} 
+          subtitle={`${payments.filter(p => p.status !== "paid").length} pending`} 
+        />
+        <MetricCard 
+          title="Multi-Chain USDC" 
+          value={`$${formatAmount(totalSales)}`} 
+          subtitle="Solana 100%" 
+        />
       </div>
 
       {/* Charts Row */}
@@ -171,20 +232,28 @@ export function Overview() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1F2228]">
-              {transactions.map((tx, index) => (
-                <tr key={index} className="hover:bg-[#1F2228]/50 transition-colors">
-                  <td className="px-6 py-4 text-[#E7ECEF]">{tx.time}</td>
-                  <td className="px-6 py-4 text-[#E7ECEF]">${tx.amount}</td>
-                  <td className="px-6 py-4 text-[#00E7FF]">{tx.chain}</td>
-                  <td className="px-6 py-4 text-[#E7ECEF]">${tx.tip}</td>
-                  <td className="px-6 py-4 text-[#A5B6C8]">{tx.signature}</td>
-                  <td className="px-6 py-4">
-                    <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
-                      View Details
-                    </button>
+              {recentTransactions.length > 0 ? (
+                recentTransactions.map((tx, index) => (
+                  <tr key={index} className="hover:bg-[#1F2228]/50 transition-colors">
+                    <td className="px-6 py-4 text-[#E7ECEF]">{tx.time}</td>
+                    <td className="px-6 py-4 text-[#E7ECEF]">${tx.amount}</td>
+                    <td className="px-6 py-4 text-[#00E7FF]">{tx.chain}</td>
+                    <td className="px-6 py-4 text-[#E7ECEF]">${tx.tip}</td>
+                    <td className="px-6 py-4 text-[#A5B6C8]">{tx.signature}</td>
+                    <td className="px-6 py-4">
+                      <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-[#A5B6C8]">
+                    No transactions yet. Process a payment from your Android terminal to see data here.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

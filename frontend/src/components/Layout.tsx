@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useLocation } from "react-router";
-import logo from "figma:asset/c1ca47751eac5607c1cfa1b0681c410dcb27e84d.png";
-import profileIcon from "figma:asset/fc099acc0805933e139739c70c81c58fd849e69a.png";
+import logo from "../assets/c1ca47751eac5607c1cfa1b0681c410dcb27e84d.png";
+import profileIcon from "../assets/fc099acc0805933e139739c70c81c58fd849e69a.png";
 
 const navItems = [
   { path: "/", label: "Overview" },
