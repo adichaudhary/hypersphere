@@ -341,7 +341,7 @@ app.get('/pay/:id', async (req, res) => {
       token_mint: paymentIntent.token_mint || null,
       token_decimals: paymentIntent.token_decimals || 6,
       recipient_address: paymentIntent.recipient_address || null,
-      programId: process.env.PROGRAM_ID || 'TapToPay111111111111111111111111111111111111',
+      programId: process.env.PROGRAM_ID || '3fJqtvkQLR45CVT83LqRP8hefjkXxAjKZ4e1N4QdHKMR',
     }));
   } catch (error) {
     console.error('Error fetching payment page:', error);

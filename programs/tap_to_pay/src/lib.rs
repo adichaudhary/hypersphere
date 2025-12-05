@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("TapToPay111111111111111111111111111111111111");
+declare_id!("3fJqtvkQLR45CVT83LqRP8hefjkXxAjKZ4e1N4QdHKMR");
 
 #[program]
 pub mod tap_to_pay {

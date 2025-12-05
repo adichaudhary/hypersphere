@@ -9,7 +9,7 @@ import {
 import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { derivePaymentIntentPDA, getConnection } from './solanaListener.js';
 
-const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || 'TapToPay111111111111111111111111111111111111');
+const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || '3fJqtvkQLR45CVT83LqRP8hefjkXxAjKZ4e1N4QdHKMR');
 
 /**
  * Creates a PaymentIntent account on-chain

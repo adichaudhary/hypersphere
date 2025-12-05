@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { Connection, PublicKey } from '@solana/web3.js';
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || '11111111111111111111111111111112');
+const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || '3fJqtvkQLR45CVT83LqRP8hefjkXxAjKZ4e1N4QdHKMR');
 
 let connection = null;
 

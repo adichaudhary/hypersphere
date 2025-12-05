@@ -14,7 +14,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || 'TapToPay111111111111111111111111111111111111');
+const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || '3fJqtvkQLR45CVT83LqRP8hefjkXxAjKZ4e1N4QdHKMR');
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
 async function createOnChainAccount(paymentIntentId, merchantPubkey, keypairPath = null) {
