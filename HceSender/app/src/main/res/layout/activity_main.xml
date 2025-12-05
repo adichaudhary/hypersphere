@@ -523,6 +523,85 @@
                     </LinearLayout>
                 </FrameLayout>
 
+                <!-- Debug/Test Section -->
+                <LinearLayout
+                    android:id="@+id/debugSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="#F5F5F5"
+                    android:padding="12dp"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔧 Test Payment URL"
+                        android:textColor="#757575"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/debugUrlText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Select chain and amount to generate URL..."
+                        android:textColor="#424242"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:background="#FFFFFF"
+                        android:padding="8dp"
+                        android:layout_marginBottom="8dp"
+                        android:maxLines="3"
+                        android:scrollbars="vertical" />
+
+                    <!-- Test Mode Toggle - Hidden (removed functionality) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="8dp"
+                        android:background="#FFF3E0"
+                        android:layout_marginBottom="8dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="🧪 Test Mode (Use Test Wallets)"
+                            android:textColor="#E65100"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <Switch
+                            android:id="@+id/testModeSwitch"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="false" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/testUrlButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Test Open URL (Simulate NFC Tap)"
+                        android:textSize="12sp"
+                        android:backgroundTint="#4CAF50"
+                        android:layout_marginBottom="4dp" />
+
+                    <TextView
+                        android:id="@+id/debugInfoText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#757575"
+                        android:textSize="10sp"
+                        android:layout_marginTop="4dp" />
+                </LinearLayout>
+
                 <!-- Footer -->
                 <LinearLayout
                     android:layout_width="match_parent"

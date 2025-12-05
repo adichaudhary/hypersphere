@@ -16,12 +16,22 @@ class PaymentCardService : HostApduService() {
         private const val PREFS_NAME = "hce_sender_prefs"
         private const val KEY_RECIPIENT = "recipient"
         private const val KEY_AMOUNT = "amount"
+        private const val KEY_CHAIN = "selected_chain"
 
-        // Merchant wallet (IMPORTANT)
+        // Merchant wallet (IMPORTANT) - Default Solana wallet
         private const val MERCHANT_WALLET = "2Qw4fFW9MeKvJXPVfMWX6X324PaX8aAA8B9J2Xnv8PBF"
         
-        // USDC mint address on Solana mainnet
-        private const val USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        // USDC mint/contract addresses (using CCTP service values)
+        private const val USDC_MINT_SOLANA = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // Solana mainnet USDC
+        private const val USDC_CONTRACT_ETH = CCTPService.USDC_ETH // Ethereum mainnet USDC (from CCTP service)
+        private const val USDC_CONTRACT_BASE = CCTPService.USDC_BASE // Base mainnet USDC (from CCTP service)
+        
+        // Chain IDs (using CCTP service values)
+        private const val ETH_CHAIN_ID = "1" // Ethereum mainnet
+        private const val BASE_CHAIN_ID = "8453" // Base mainnet
+        
+        // CCTP service instance
+        private val cctpService = CCTPService()
         
         // Fixed amount for now
         private const val FIXED_AMOUNT = "0.01"
@@ -52,28 +62,56 @@ class PaymentCardService : HostApduService() {
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
         }
 
-        // Read amount and recipient wallet from SharedPreferences
+        // Read amount, recipient wallet, and selected chain from SharedPreferences
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val amount = prefs.getString(KEY_AMOUNT, FIXED_AMOUNT) ?: FIXED_AMOUNT
-        // Get wallet address from SharedPreferences (updated by MainActivity based on selected chain)
+        val selectedChain = prefs.getString(KEY_CHAIN, "SOL") ?: "SOL"
+        
+        // Get recipient wallet from preferences
         val recipientWallet = prefs.getString(KEY_RECIPIENT, MERCHANT_WALLET) ?: MERCHANT_WALLET
 
-        // Construct Solana Pay transfer request URL
-        // Format: solana:<recipient>?amount=<amount>&spl-token=<spl-token>&label=<label>&message=<message>
-        val labelEncoded = Uri.encode(LABEL)
-        val messageEncoded = Uri.encode(MESSAGE)
+        // Generate payment URL based on selected chain
+        val paymentUrl = when (selectedChain) {
+            "SOL" -> {
+                // SOL uses Solana Pay format (opens Phantom on Solana network)
+                // Format: solana:<recipient>?amount=<amount>&spl-token=<spl-token>&label=<label>&message=<message>
+                val labelEncoded = Uri.encode(LABEL)
+                val messageEncoded = Uri.encode(MESSAGE)
+                "solana:$recipientWallet" +
+                    "?amount=$amount" +
+                    "&spl-token=$USDC_MINT_SOLANA" +
+                    "&label=$labelEncoded" +
+                    "&message=$messageEncoded"
+            }
+            "ETH" -> {
+                // ETH uses MetaMask deep link format for Ethereum mainnet
+                // Uses CCTP service to ensure correct Ethereum network USDC contract
+                val amountDouble = amount.toDoubleOrNull() ?: 0.0
+                cctpService.generatePaymentUrl("ETH", recipientWallet, amountDouble, false)
+            }
+            "BASE" -> {
+                // Base Pay - opens MetaMask on Base network and prompts transaction
+                // Uses CCTP service to ensure correct Base network USDC contract
+                val amountDouble = amount.toDoubleOrNull() ?: 0.0
+                cctpService.generatePaymentUrl("BASE", recipientWallet, amountDouble, false)
+            }
+            else -> {
+                // Default to Solana Pay (Phantom)
+                val labelEncoded = Uri.encode(LABEL)
+                val messageEncoded = Uri.encode(MESSAGE)
+                "solana:$recipientWallet" +
+                    "?amount=$amount" +
+                    "&spl-token=$USDC_MINT_SOLANA" +
+                    "&label=$labelEncoded" +
+                    "&message=$messageEncoded"
+            }
+        }
 
-        val solanaPayUrl = "solana:$recipientWallet" +
-            "?amount=$amount" +
-            "&spl-token=$USDC_MINT" +
-            "&label=$labelEncoded" +
-            "&message=$messageEncoded"
-
-        Log.d(TAG, "Serving Solana Pay URL: $solanaPayUrl")
-        Log.d(TAG, "Merchant: $recipientWallet, Amount: $amount USDC, Token: $USDC_MINT")
+        Log.d(TAG, "Serving payment URL for chain $selectedChain: $paymentUrl")
+        Log.d(TAG, "Merchant: $recipientWallet, Amount: $amount USDC, Chain: $selectedChain")
 
         // Convert to bytes and append 0x90 0x00
-        val urlBytes = solanaPayUrl.toByteArray(Charsets.UTF_8)
+        val urlBytes = paymentUrl.toByteArray(Charsets.UTF_8)
         val response = urlBytes + STATUS_SUCCESS
         
         Log.d(TAG, "Response total length: ${response.size} bytes")

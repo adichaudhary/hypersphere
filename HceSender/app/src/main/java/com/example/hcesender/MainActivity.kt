@@ -15,6 +15,8 @@ import android.os.Looper
 import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.util.Log
+import android.net.Uri
+import android.widget.Toast
 import com.example.hcesender.databinding.ActivityMainBinding
 import java.text.NumberFormat
 import java.util.Locale
@@ -43,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     }
     private var selectedChain = Chain.SOL // Default to Solana
     private var currentMerchantWallet = MERCHANT_WALLET // Will be updated based on chain
+    private val cctpService = CCTPService()
 
     companion object {
         const val PREFS_NAME = "hce_sender_prefs"
@@ -99,6 +102,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Set up test URL button
+        binding.testUrlButton.setOnClickListener {
+            testPaymentUrl()
+        }
+        
+        // Test Circle API connection on startup (in background)
+        thread {
+            val connected = cctpService.testCircleAPIConnection()
+            handler.post {
+                if (connected) {
+                    Log.d(TAG, "✓ Circle API sandbox connection successful")
+                } else {
+                    Log.w(TAG, "⚠ Circle API sandbox connection failed - check API key")
+                }
+            }
+        }
+
+        // Update debug URL display initially
+        updateDebugUrlDisplay()
+
         // Register broadcast receiver for NFC scan events
         nfcScanReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -134,6 +157,9 @@ class MainActivity : AppCompatActivity() {
             else -> Chain.SOL
         }
         
+        // Ensure chain is saved to SharedPreferences (for PaymentCardService)
+        prefs.edit().putString(KEY_CHAIN, selectedChain.name).apply()
+        
         // Reset tip
         tipPercentage = 0
         tipAmount = 0.0
@@ -165,6 +191,9 @@ class MainActivity : AppCompatActivity() {
         
         // Update tip button states
         updateTipButtonStates()
+        
+        // Update debug URL display
+        updateDebugUrlDisplay()
     }
     
     private fun updateTipButtonStates() {
@@ -236,15 +265,20 @@ class MainActivity : AppCompatActivity() {
     private fun selectChain(chain: Chain) {
         selectedChain = chain
         
-        // Save to SharedPreferences
+        // Save to SharedPreferences (for PaymentCardService to read)
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        prefs.edit().putString(KEY_CHAIN, chain.name).apply()
+        prefs.edit()
+            .putString(KEY_CHAIN, chain.name)
+            .apply()
         
         // Update UI
         updateChainSelection()
         
         // Fetch wallet address for the selected chain
         fetchWalletAddressForChain(chain)
+        
+        // Update debug URL display
+        updateDebugUrlDisplay()
         
         Log.d(TAG, "Chain selected: ${chain.name}")
     }
@@ -294,6 +328,9 @@ class MainActivity : AppCompatActivity() {
         // Update SharedPreferences so PaymentCardService can use the new wallet
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.edit().putString(KEY_RECIPIENT, walletAddress).apply()
+        
+        // Update debug URL display with new wallet
+        updateDebugUrlDisplay()
     }
     
     private fun updateChainSelection() {
@@ -460,6 +497,132 @@ class MainActivity : AppCompatActivity() {
                 binding.processingState.visibility = View.GONE
                 binding.successState.visibility = View.VISIBLE
             }
+        }
+    }
+    
+    /**
+     * Generate payment URL based on current chain, amount, and wallet
+     * Uses the same logic as PaymentCardService
+     */
+    private fun generatePaymentUrl(): String {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val amount = String.format("%.2f", totalAmount)
+        val chain = selectedChain.name
+        
+        // Get recipient wallet from preferences
+        val recipientWallet = prefs.getString(KEY_RECIPIENT, MERCHANT_WALLET) ?: MERCHANT_WALLET
+        
+        return when (chain) {
+            "SOL" -> {
+                // Solana Pay format for Phantom on Solana network
+                val labelEncoded = Uri.encode("Hypersphere")
+                val messageEncoded = Uri.encode("Tap to Pay")
+                val usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                "solana:$recipientWallet?amount=$amount&spl-token=$usdcMint&label=$labelEncoded&message=$messageEncoded"
+            }
+            "ETH" -> {
+                // MetaMask format for Ethereum mainnet - uses CCTP service to ensure correct network
+                cctpService.generatePaymentUrl("ETH", recipientWallet, totalAmount, false)
+            }
+            "BASE" -> {
+                // Base Pay format - opens MetaMask on Base network and prompts transaction
+                // Uses CCTP service to ensure Base network USDC contract
+                cctpService.generatePaymentUrl("BASE", recipientWallet, totalAmount, false)
+            }
+            else -> {
+                val labelEncoded = Uri.encode("Hypersphere")
+                val messageEncoded = Uri.encode("Tap to Pay")
+                val usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                "solana:$recipientWallet?amount=$amount&spl-token=$usdcMint&label=$labelEncoded&message=$messageEncoded"
+            }
+        }
+    }
+    
+    /**
+     * Update debug URL display with current payment URL
+     */
+    private fun updateDebugUrlDisplay() {
+        try {
+            val paymentUrl = generatePaymentUrl()
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            
+            val wallet = prefs.getString(KEY_RECIPIENT, MERCHANT_WALLET) ?: MERCHANT_WALLET
+            
+            binding.debugUrlText.text = paymentUrl
+            
+            val walletApp = when (selectedChain) {
+                Chain.SOL -> "Phantom"
+                Chain.ETH -> "MetaMask"
+                Chain.BASE -> "MetaMask (Base Pay)"
+            }
+            
+            val networkInfo = when (selectedChain) {
+                Chain.ETH -> " | Network: Ethereum Mainnet (USDC via CCTP)"
+                Chain.BASE -> " | Network: Base (USDC via CCTP) - Base Pay"
+                Chain.SOL -> " | Network: Solana (USDC)"
+            }
+            
+            binding.debugInfoText.text = "Chain: ${selectedChain.name} | Wallet: ${wallet.take(8)}... | Opens: $walletApp$networkInfo"
+        } catch (e: Exception) {
+            Log.e(TAG, "Error generating payment URL", e)
+            binding.debugUrlText.text = "Error generating URL: ${e.message}"
+        }
+    }
+    
+    /**
+     * Test opening the payment URL (simulates NFC reader behavior)
+     */
+    private fun testPaymentUrl() {
+        try {
+            val paymentUrl = generatePaymentUrl()
+            Log.d(TAG, "Testing payment URL: $paymentUrl")
+            
+            val uri = Uri.parse(paymentUrl)
+            
+            if (uri.scheme == null) {
+                Toast.makeText(this, "Invalid URL format", Toast.LENGTH_SHORT).show()
+                return
+            }
+            
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addCategory(Intent.CATEGORY_BROWSABLE)
+            intent.addCategory(Intent.CATEGORY_DEFAULT)
+            
+            // For ethereum: scheme, ensure MetaMask can handle the transaction request
+            if (uri.scheme == "ethereum") {
+                // MetaMask should handle EIP-681 format and create transaction request
+                Log.d(TAG, "Opening Ethereum payment URL: $paymentUrl")
+                Log.d(TAG, "This should create a transaction request in MetaMask with amount: $totalAmount USDC")
+            }
+            
+            val walletApp = when (uri.scheme) {
+                "solana" -> "Phantom"
+                "ethereum" -> {
+                    when (selectedChain) {
+                        Chain.BASE -> "MetaMask (Base Pay)"
+                        else -> "MetaMask"
+                    }
+                }
+                else -> "wallet app"
+            }
+            
+            try {
+                startActivity(intent)
+                val networkName = when (selectedChain) {
+                    Chain.ETH -> "Ethereum Mainnet"
+                    Chain.BASE -> "Base (Base Pay)"
+                    Chain.SOL -> "Solana"
+                }
+                Toast.makeText(this, "Opening in $walletApp ($networkName)...", Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "Successfully opened URL in $walletApp")
+            } catch (e: android.content.ActivityNotFoundException) {
+                Toast.makeText(this, "Please install $walletApp to test this payment", Toast.LENGTH_LONG).show()
+                Log.e(TAG, "$walletApp not installed", e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error testing payment URL", e)
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 }
