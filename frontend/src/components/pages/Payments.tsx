@@ -54,6 +54,47 @@ export function Payments() {
     return true;
   });
 
+  // Export payments to CSV
+  const exportToCSV = () => {
+    if (filteredPayments.length === 0) {
+      alert("No payments to export");
+      return;
+    }
+
+    // CSV headers
+    const headers = ["ID", "Time", "Amount (USDC)", "Chain", "Tip", "Transaction Signature", "Status"];
+    
+    // CSV rows
+    const rows = filteredPayments.map(payment => [
+      payment.id,
+      payment.time,
+      payment.amount,
+      payment.chain,
+      payment.tip,
+      payment.signature,
+      payment.status
+    ]);
+
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `payments_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -139,7 +180,10 @@ export function Payments() {
         <div className="text-[#A5B6C8]">
           Showing {filteredPayments.length} confirmed payment{filteredPayments.length !== 1 ? "s" : ""}
         </div>
-        <button className="px-4 py-2 bg-[#00E7FF]/10 text-[#00E7FF] rounded-lg hover:bg-[#00E7FF]/20 transition-colors">
+        <button 
+          onClick={exportToCSV}
+          className="px-4 py-2 bg-[#00E7FF]/10 text-[#00E7FF] rounded-lg hover:bg-[#00E7FF]/20 transition-colors"
+        >
           Export Data
         </button>
       </div>
