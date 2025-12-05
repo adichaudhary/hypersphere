@@ -228,13 +228,19 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Save Button */}
+      {/* Action Buttons */}
       <div className="flex justify-end items-center gap-4">
         {saveMessage && (
           <div className={`text-sm ${saveMessage.includes("Error") ? "text-red-400" : "text-green-400"}`}>
             {saveMessage}
           </div>
         )}
+        <button
+          onClick={() => {}}
+          className="px-8 py-3 bg-[#1F2228] border border-[#1F2228] text-[#E7ECEF] rounded-lg hover:bg-[#2A2D35] transition-colors"
+        >
+          Rebalance Portfolio
+        </button>
         <button
           onClick={handleSave}
           disabled={saving}
