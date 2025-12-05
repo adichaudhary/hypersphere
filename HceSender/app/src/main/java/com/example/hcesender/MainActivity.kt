@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.animation.OvershootInterpolator
 import android.util.Log
 import com.example.hcesender.databinding.ActivityMainBinding
 import java.text.NumberFormat
@@ -269,6 +270,9 @@ class MainActivity : AppCompatActivity() {
             val formatter = NumberFormat.getCurrencyInstance(Locale.US)
             binding.successAmount.text = "${formatter.format(totalAmount)} charged"
             
+            // Animate checkmark appearance
+            animateSuccessCheckmark()
+            
             // Send payment data to backend
             sendPaymentToBackend(totalAmount)
             
@@ -281,6 +285,22 @@ class MainActivity : AppCompatActivity() {
                 updateAmountDisplays()
             }, 3000)
         }
+    }
+    
+    private fun animateSuccessCheckmark() {
+        // Reset checkmark to initial state (hidden and scaled down)
+        binding.successIcon.alpha = 0f
+        binding.successIcon.scaleX = 0f
+        binding.successIcon.scaleY = 0f
+        
+        // Animate checkmark with bounce effect
+        binding.successIcon.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(600)
+            .setInterpolator(OvershootInterpolator(1.2f))
+            .start()
     }
 
     private fun sendPaymentToBackend(amount: Double) {
@@ -364,6 +384,10 @@ class MainActivity : AppCompatActivity() {
                 binding.idleState.visibility = View.VISIBLE
                 binding.processingState.visibility = View.GONE
                 binding.successState.visibility = View.GONE
+                // Reset checkmark animation state for next payment
+                binding.successIcon.alpha = 0f
+                binding.successIcon.scaleX = 0f
+                binding.successIcon.scaleY = 0f
             }
             PaymentState.PROCESSING -> {
                 binding.idleState.visibility = View.GONE

@@ -487,12 +487,14 @@
 
                         <ImageView
                             android:id="@+id/successIcon"
-                            android:layout_width="80dp"
-                            android:layout_height="80dp"
-                            android:src="@android:drawable/checkbox_on_background"
-                            android:tint="#4CAF50"
+                            android:layout_width="96dp"
+                            android:layout_height="96dp"
+                            android:src="@drawable/ic_check_circle"
                             android:layout_marginBottom="20dp"
-                            android:scaleType="centerInside" />
+                            android:scaleType="fitCenter"
+                            android:alpha="0.0"
+                            android:scaleX="0.0"
+                            android:scaleY="0.0" />
 
                         <TextView
                             android:layout_width="wrap_content"
