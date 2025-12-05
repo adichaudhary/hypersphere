@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchMerchantPayments, formatAmount, formatDateTime, formatTxSignature, type Payment } from "../../utils/api";
+import { fetchMerchantPayments, formatAmount, formatDateTime, formatTxSignature, getExplorerUrl, type Payment } from "../../utils/api";
 
 // Merchant ID - update this with your actual merchant wallet address
 const MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
@@ -40,10 +40,11 @@ export function Payments() {
     id: payment.id,
     time: formatDateTime(payment.created_at),
     amount: formatAmount(payment.amount),
-    chain: payment.chain || (payment.currency === "USDC" ? "Solana" : payment.currency || "Solana"),
+    chain: payment.chain || (payment.currency === "USDC" ? "SOL" : payment.currency || "SOL"),
     tip: formatAmount(payment.tip_amount || 0),
     signature: formatTxSignature(payment.tx_signature),
-    status: payment.status === "paid" ? "Confirmed" : "Pending",
+    status: "Confirmed", // All payments are confirmed
+    tx_signature: payment.tx_signature,
   }));
 
   const filteredPayments = displayPayments.filter((payment) => {
@@ -217,9 +218,14 @@ export function Payments() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
+                    <a
+                      href={getExplorerUrl(payment.chain, payment.tx_signature)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#00E7FF] hover:text-[#3457FF] transition-colors cursor-pointer"
+                    >
                       View Details
-                    </button>
+                    </a>
                   </td>
                 </tr>
               ))}
