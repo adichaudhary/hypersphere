@@ -46,6 +46,7 @@ export function initializeDatabase() {
               solana_address TEXT,
               base_address TEXT,
               ethereum_address TEXT,
+              preferred_chain TEXT,
               created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
               updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -111,6 +112,9 @@ export function initializeDatabase() {
                   }
                   if (!merchantExisting.includes('ethereum_address')) {
                     migrations.push(`ALTER TABLE merchants ADD COLUMN ethereum_address TEXT`);
+                  }
+                  if (!merchantExisting.includes('preferred_chain')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN preferred_chain TEXT`);
                   }
                   if (!merchantExisting.includes('updated_at')) {
                     migrations.push(`ALTER TABLE merchants ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
@@ -266,8 +270,8 @@ export function saveMerchant(merchant) {
       const walletAddress = merchant.wallet_address || merchant.solana_address || merchant.id;
       
       db.run(
-        `INSERT OR REPLACE INTO merchants (id, name, wallet_address, email, business_type, solana_address, base_address, ethereum_address, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        `INSERT OR REPLACE INTO merchants (id, name, wallet_address, email, business_type, solana_address, base_address, ethereum_address, preferred_chain, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [
           merchant.id, 
           merchant.name || 'Merchant', 
@@ -277,6 +281,7 @@ export function saveMerchant(merchant) {
           merchant.solana_address || null,
           merchant.base_address || null,
           merchant.ethereum_address || null,
+          merchant.preferred_chain || null,
         ],
         function(err) {
           if (err) {
@@ -333,6 +338,10 @@ export function updateMerchantSettings(merchantId, settings) {
       if (settings.ethereum_address !== undefined && settings.ethereum_address !== null) {
         updates.push('ethereum_address = ?');
         values.push(settings.ethereum_address);
+      }
+      if (settings.preferred_chain !== undefined) {
+        updates.push('preferred_chain = ?');
+        values.push(settings.preferred_chain && settings.preferred_chain.trim() !== '' ? settings.preferred_chain : null);
       }
       
       if (updates.length === 0) {

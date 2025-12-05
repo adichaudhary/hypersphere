@@ -471,6 +471,7 @@ app.get('/merchants/:id/settings', async (req, res) => {
       solana_address: merchant.solana_address || merchant.wallet_address || '',
       base_address: merchant.base_address || '',
       ethereum_address: merchant.ethereum_address || '',
+      preferred_chain: merchant.preferred_chain || '',
     }));
   } catch (error) {
     console.error('Error fetching merchant settings:', error);
@@ -485,9 +486,9 @@ app.get('/merchants/:id/settings', async (req, res) => {
 app.put('/merchants/:id/settings', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, business_type, solana_address, base_address, ethereum_address } = req.body;
+    const { name, email, business_type, solana_address, base_address, ethereum_address, preferred_chain } = req.body;
 
-    console.log('Updating merchant settings:', { id, name, email, business_type, solana_address, base_address, ethereum_address });
+    console.log('Updating merchant settings:', { id, name, email, business_type, solana_address, base_address, ethereum_address, preferred_chain });
 
     // Ensure merchant exists
     let merchant = await getMerchant(id);
@@ -503,6 +504,7 @@ app.put('/merchants/:id/settings', async (req, res) => {
         solana_address: solana_address || null,
         base_address: base_address || null,
         ethereum_address: ethereum_address || null,
+        preferred_chain: preferred_chain || null,
       };
       await saveMerchant(merchant);
       console.log('Merchant created successfully');
@@ -523,6 +525,7 @@ app.put('/merchants/:id/settings', async (req, res) => {
         solana_address,
         base_address,
         ethereum_address,
+        preferred_chain,
       });
 
       console.log('Merchant settings updated successfully');

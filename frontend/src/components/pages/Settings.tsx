@@ -10,6 +10,7 @@ export function Settings() {
   const [solanaAddress, setSolanaAddress] = useState("");
   const [baseAddress, setBaseAddress] = useState("");
   const [ethereumAddress, setEthereumAddress] = useState("");
+  const [preferredChain, setPreferredChain] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function Settings() {
           setSolanaAddress(data.solana_address || data.wallet_address || "");
           setBaseAddress(data.base_address || "");
           setEthereumAddress(data.ethereum_address || "");
+          setPreferredChain(data.preferred_chain || "");
         }
       } catch (err) {
         console.error("Failed to load settings:", err);
@@ -55,6 +57,7 @@ export function Settings() {
           solana_address: solanaAddress,
           base_address: baseAddress,
           ethereum_address: ethereumAddress,
+          preferred_chain: preferredChain || null,
         }),
       });
 
@@ -171,6 +174,57 @@ export function Settings() {
               className="w-full bg-[#0B0D0F] border border-[#1F2228] rounded-lg px-4 py-2 text-[#E7ECEF] focus:outline-none focus:border-[#00E7FF] font-mono"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Preferred Chain */}
+      <div className="bg-[#121417] border border-[#1F2228] rounded-lg p-6">
+        <h3 className="text-[#E7ECEF] mb-6">Preferred Chain (Optional)</h3>
+        
+        <div className="space-y-3">
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="radio"
+              name="preferredChain"
+              value="SOL"
+              checked={preferredChain === "SOL"}
+              onChange={(e) => setPreferredChain(e.target.value)}
+              className="w-4 h-4 text-[#00E7FF] bg-[#0B0D0F] border-[#1F2228] focus:ring-[#00E7FF] focus:ring-2"
+            />
+            <span className="text-[#E7ECEF]" style={{ marginLeft: '12px' }}>SOL</span>
+          </label>
+          
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="radio"
+              name="preferredChain"
+              value="BASE"
+              checked={preferredChain === "BASE"}
+              onChange={(e) => setPreferredChain(e.target.value)}
+              className="w-4 h-4 text-[#00E7FF] bg-[#0B0D0F] border-[#1F2228] focus:ring-[#00E7FF] focus:ring-2"
+            />
+            <span className="text-[#E7ECEF]" style={{ marginLeft: '12px' }}>BASE</span>
+          </label>
+          
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="radio"
+              name="preferredChain"
+              value="ETH"
+              checked={preferredChain === "ETH"}
+              onChange={(e) => setPreferredChain(e.target.value)}
+              className="w-4 h-4 text-[#00E7FF] bg-[#0B0D0F] border-[#1F2228] focus:ring-[#00E7FF] focus:ring-2"
+            />
+            <span className="text-[#E7ECEF]" style={{ marginLeft: '12px' }}>ETH</span>
+          </label>
+          
+          <button
+            type="button"
+            onClick={() => setPreferredChain("")}
+            className="text-sm text-[#A5B6C8] hover:text-[#00E7FF] transition-colors mt-2"
+          >
+            Clear selection
+          </button>
         </div>
       </div>
 
