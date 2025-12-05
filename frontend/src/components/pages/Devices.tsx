@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { fetchMerchantPayments } from "../../utils/api";
 
 interface Device {
   id: string;
@@ -9,15 +10,44 @@ interface Device {
   transactions: number;
 }
 
-const initialDevices: Device[] = [
-  { id: "1", name: "Terminal - Storefront A", status: "Active", lastSync: "2 minutes ago", location: "Main Store", transactions: 1247 },
-  { id: "2", name: "Terminal - Storefront B", status: "Active", lastSync: "5 minutes ago", location: "Main Store", transactions: 892 },
-  { id: "3", name: "Terminal - Pop-up Location", status: "Active", lastSync: "1 hour ago", location: "Downtown", transactions: 345 },
-  { id: "4", name: "Terminal - Mobile Unit", status: "Inactive", lastSync: "3 hours ago", location: "Events", transactions: 156 },
-];
+const MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
 
 export function Devices() {
-  const [devices, setDevices] = useState<Device[]>(initialDevices);
+  const [devices, setDevices] = useState<Device[]>([
+    { id: "1", name: "Android Terminal", status: "Active", lastSync: "Just now", location: "Main Store", transactions: 0 },
+  ]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch payments to get transaction count
+  useEffect(() => {
+    async function loadPayments() {
+      try {
+        const data = await fetchMerchantPayments(MERCHANT_ID);
+        const transactionCount = data.payments.length;
+        
+        setDevices([
+          { 
+            id: "1", 
+            name: "Android Terminal", 
+            status: "Active", 
+            lastSync: "Just now", 
+            location: "Main Store", 
+            transactions: transactionCount 
+          }
+        ]);
+      } catch (err) {
+        console.error("Failed to load payments:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPayments();
+    
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(loadPayments, 10000);
+    return () => clearInterval(interval);
+  }, []);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState("");
   const [newDeviceLocation, setNewDeviceLocation] = useState("");
@@ -45,6 +75,14 @@ export function Devices() {
 
   const activeDevices = devices.filter(d => d.status === "Active").length;
   const totalTransactions = devices.reduce((sum, d) => sum + d.transactions, 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-[#A5B6C8]">Loading devices...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

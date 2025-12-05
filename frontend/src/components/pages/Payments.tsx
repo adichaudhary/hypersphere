@@ -40,8 +40,8 @@ export function Payments() {
     id: payment.id,
     time: formatDateTime(payment.created_at),
     amount: formatAmount(payment.amount),
-    chain: payment.currency || "Solana",
-    tip: "0.00", // Tips not yet implemented in backend
+    chain: payment.chain || (payment.currency === "USDC" ? "Solana" : payment.currency || "Solana"),
+    tip: formatAmount(payment.tip_amount || 0),
     signature: formatTxSignature(payment.tx_signature),
     status: payment.status === "paid" ? "Confirmed" : "Pending",
   }));

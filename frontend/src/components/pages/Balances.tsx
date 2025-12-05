@@ -1,57 +1,138 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from "recharts";
+import { useState, useEffect } from "react";
+import { fetchMerchantPayments, formatAmount, type Payment } from "../../utils/api";
 
-const balances = [
-  { chain: "Solana", balance: "642,564.25", percentage: 72, address: "7Kx9...3mNp" },
-  { chain: "Base", balance: "178,490.00", percentage: 20, address: "0x8f...2c2a" },
-  { chain: "Ethereum", balance: "71,395.75", percentage: 8, address: "0x1a...8d8b" },
-];
+// Merchant ID - update this with your actual merchant wallet address
+const MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
 
-const inflowData = [
-  { day: "Mon", amount: 45000 },
-  { day: "Tue", amount: 52000 },
-  { day: "Wed", amount: 61000 },
-  { day: "Thu", amount: 58000 },
-  { day: "Fri", amount: 72000 },
-  { day: "Sat", amount: 85000 },
-  { day: "Sun", amount: 68000 },
-];
+// Merchant wallet address for display
+const MERCHANT_WALLET = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U";
 
-const chainComparisonData = [
-  { chain: "Solana", balance: 642564 },
-  { chain: "Base", balance: 178490 },
-  { chain: "Ethereum", balance: 71395 },
-];
+function formatAddress(address: string): string {
+  if (!address) return "N/A";
+  if (address.length <= 8) return address;
+  return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
+}
 
 export function Balances() {
-  const totalBalance = balances.reduce((sum, b) => sum + parseFloat(b.balance.replace(/,/g, "")), 0);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch payments from backend
+  useEffect(() => {
+    async function loadPayments() {
+      try {
+        const data = await fetchMerchantPayments(MERCHANT_ID);
+        setPayments(data.payments);
+      } catch (err) {
+        console.error("Failed to load payments:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPayments();
+    
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(loadPayments, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate balances by chain from actual payments
+  const chainBalances = payments.reduce((acc, p) => {
+    const chain = p.chain || (p.currency === "USDC" ? "Solana" : p.currency || "Solana");
+    // Normalize chain names
+    const normalizedChain = chain === "SOL" ? "Solana" : 
+                           chain === "ETH" ? "Ethereum" :
+                           chain === "BASE" ? "Base" : chain;
+    
+    if (!acc[normalizedChain]) {
+      acc[normalizedChain] = 0;
+    }
+    acc[normalizedChain] += p.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const totalBalance = Object.values(chainBalances).reduce((sum, val) => sum + val, 0);
+
+  // Create balances array with percentages
+  const balances = Object.entries(chainBalances)
+    .map(([chain, balance]) => ({
+      chain,
+      balance,
+      percentage: totalBalance > 0 ? Math.round((balance / totalBalance) * 100) : 0,
+      address: formatAddress(MERCHANT_WALLET)
+    }))
+    .sort((a, b) => b.balance - a.balance);
+
+  // Calculate 7-day inflow history
+  const now = new Date();
+  const inflowData = Array.from({ length: 7 }, (_, i) => {
+    const dayStart = new Date(now);
+    dayStart.setDate(now.getDate() - (6 - i));
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
+    const amount = payments
+      .filter(p => {
+        const pDate = new Date(p.created_at);
+        return pDate >= dayStart && pDate < dayEnd;
+      })
+      .reduce((sum, p) => sum + p.amount, 0);
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return {
+      day: dayNames[dayStart.getDay()],
+      amount: amount
+    };
+  });
+
+  // Chain comparison data for bar chart
+  const chainComparisonData = balances.map(b => ({
+    chain: b.chain,
+    balance: b.balance
+  }));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-[#A5B6C8]">Loading balances...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Total Balance Card */}
       <div className="bg-gradient-to-br from-[#00E7FF]/10 to-[#3457FF]/10 border border-[#00E7FF]/30 rounded-lg p-8">
         <div className="text-[#A5B6C8] mb-2">Total USDC Balance</div>
-        <div className="text-[#E7ECEF] mb-4">${totalBalance.toLocaleString()}</div>
-        <div className="text-[#00E7FF]">Across 3 chains</div>
+        <div className="text-[#E7ECEF] mb-4">${formatAmount(totalBalance)}</div>
+        <div className="text-[#00E7FF]">Across {balances.length} chain{balances.length !== 1 ? 's' : ''}</div>
       </div>
 
       {/* Chain Balances */}
-      <div className="grid grid-cols-3 gap-6">
-        {balances.map((balance) => (
-          <div key={balance.chain} className="bg-[#121417] border border-[#1F2228] rounded-lg p-6 hover:border-[#00E7FF]/30 transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[#00E7FF]">{balance.chain}</div>
-              <div className="text-[#A5B6C8]">{balance.percentage}%</div>
+      <div className={`grid gap-6 ${balances.length === 1 ? 'grid-cols-1' : balances.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        {balances.length > 0 ? (
+          balances.map((balance) => (
+            <div key={balance.chain} className="bg-[#121417] border border-[#1F2228] rounded-lg p-6 hover:border-[#00E7FF]/30 transition-all">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-[#00E7FF]">{balance.chain}</div>
+                <div className="text-[#A5B6C8]">{balance.percentage}%</div>
+              </div>
+              <div className="text-[#E7ECEF] mb-2">${formatAmount(balance.balance)}</div>
+              <div className="text-[#A5B6C8] mb-4">{balance.address}</div>
+              <div className="w-full bg-[#1F2228] rounded-full h-2">
+                <div
+                  className="bg-gradient-to-r from-[#00E7FF] to-[#3457FF] h-2 rounded-full"
+                  style={{ width: `${balance.percentage}%` }}
+                />
+              </div>
             </div>
-            <div className="text-[#E7ECEF] mb-2">${balance.balance}</div>
-            <div className="text-[#A5B6C8] mb-4">{balance.address}</div>
-            <div className="w-full bg-[#1F2228] rounded-full h-2">
-              <div
-                className="bg-gradient-to-r from-[#00E7FF] to-[#3457FF] h-2 rounded-full"
-                style={{ width: `${balance.percentage}%` }}
-              />
-            </div>
+          ))
+        ) : (
+          <div className="col-span-3 text-center text-[#A5B6C8] py-8">
+            No balance data available
           </div>
-        ))}
+        )}
       </div>
 
       {/* Charts Row */}
@@ -122,19 +203,27 @@ export function Balances() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1F2228]">
-              {balances.map((balance) => (
-                <tr key={balance.chain} className="hover:bg-[#1F2228]/50 transition-colors">
-                  <td className="px-6 py-4 text-[#00E7FF]">{balance.chain}</td>
-                  <td className="px-6 py-4 text-[#E7ECEF]">${balance.balance}</td>
-                  <td className="px-6 py-4 text-[#E7ECEF]">{balance.percentage}%</td>
-                  <td className="px-6 py-4 text-[#A5B6C8]">{balance.address}</td>
-                  <td className="px-6 py-4">
-                    <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
-                      View Transactions
-                    </button>
+              {balances.length > 0 ? (
+                balances.map((balance) => (
+                  <tr key={balance.chain} className="hover:bg-[#1F2228]/50 transition-colors">
+                    <td className="px-6 py-4 text-[#00E7FF]">{balance.chain}</td>
+                    <td className="px-6 py-4 text-[#E7ECEF]">${formatAmount(balance.balance)}</td>
+                    <td className="px-6 py-4 text-[#E7ECEF]">{balance.percentage}%</td>
+                    <td className="px-6 py-4 text-[#A5B6C8]">{balance.address}</td>
+                    <td className="px-6 py-4">
+                      <button className="text-[#00E7FF] hover:text-[#3457FF] transition-colors">
+                        View Transactions
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-[#A5B6C8]">
+                    No balance data available
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

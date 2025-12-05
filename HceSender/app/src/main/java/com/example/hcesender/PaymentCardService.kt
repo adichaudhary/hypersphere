@@ -52,23 +52,25 @@ class PaymentCardService : HostApduService() {
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
         }
 
-        // Read amount from SharedPreferences (merchant wallet is fixed)
+        // Read amount and recipient wallet from SharedPreferences
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val amount = prefs.getString(KEY_AMOUNT, FIXED_AMOUNT) ?: FIXED_AMOUNT
+        // Get wallet address from SharedPreferences (updated by MainActivity based on selected chain)
+        val recipientWallet = prefs.getString(KEY_RECIPIENT, MERCHANT_WALLET) ?: MERCHANT_WALLET
 
         // Construct Solana Pay transfer request URL
         // Format: solana:<recipient>?amount=<amount>&spl-token=<spl-token>&label=<label>&message=<message>
         val labelEncoded = Uri.encode(LABEL)
         val messageEncoded = Uri.encode(MESSAGE)
 
-        val solanaPayUrl = "solana:$MERCHANT_WALLET" +
+        val solanaPayUrl = "solana:$recipientWallet" +
             "?amount=$amount" +
             "&spl-token=$USDC_MINT" +
             "&label=$labelEncoded" +
             "&message=$messageEncoded"
 
         Log.d(TAG, "Serving Solana Pay URL: $solanaPayUrl")
-        Log.d(TAG, "Merchant: $MERCHANT_WALLET, Amount: $amount USDC, Token: $USDC_MINT")
+        Log.d(TAG, "Merchant: $recipientWallet, Amount: $amount USDC, Token: $USDC_MINT")
 
         // Convert to bytes and append 0x90 0x00
         val urlBytes = solanaPayUrl.toByteArray(Charsets.UTF_8)

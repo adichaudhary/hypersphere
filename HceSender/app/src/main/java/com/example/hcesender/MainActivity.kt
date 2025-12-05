@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         ETH, SOL, BASE
     }
     private var selectedChain = Chain.SOL // Default to Solana
+    private var currentMerchantWallet = MERCHANT_WALLET // Will be updated based on chain
 
     companion object {
         const val PREFS_NAME = "hce_sender_prefs"
@@ -50,7 +51,9 @@ class MainActivity : AppCompatActivity() {
         const val KEY_CHAIN = "selected_chain"
         const val TAG = "MainActivity"
 
-        // Merchant wallet (hardcoded for consistency with PaymentCardService)
+        // Merchant ID (used for API calls - should match frontend)
+        const val MERCHANT_ID = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U"
+        // Default merchant wallet (fallback if wallet address not found)
         const val MERCHANT_WALLET = "2Qw4fFW9MeKvJXPVfMWX6X324PaX8aAA8B9J2Xnv8PBF"
         const val DEFAULT_AMOUNT = "0.01"
         
@@ -69,6 +72,9 @@ class MainActivity : AppCompatActivity() {
 
         // Load amount from SharedPreferences and display it
         loadAndDisplayAmount()
+        
+        // Fetch wallet address for the initially selected chain
+        fetchWalletAddressForChain(selectedChain)
 
         // Set up amount text click listener to edit amount
         binding.amountText.setOnClickListener {
@@ -136,6 +142,9 @@ class MainActivity : AppCompatActivity() {
         // Update all displays
         updateAmountDisplays()
         updateChainSelection()
+        
+        // Fetch wallet address for the loaded chain
+        fetchWalletAddressForChain(selectedChain)
     }
     
     private fun updateAmountDisplays() {
@@ -234,7 +243,57 @@ class MainActivity : AppCompatActivity() {
         // Update UI
         updateChainSelection()
         
+        // Fetch wallet address for the selected chain
+        fetchWalletAddressForChain(chain)
+        
         Log.d(TAG, "Chain selected: ${chain.name}")
+    }
+    
+    private fun fetchWalletAddressForChain(chain: Chain) {
+        // Fetch wallet address from backend based on selected chain
+        thread {
+            try {
+                val walletUrl = URL("$BACKEND_URL/merchants/$MERCHANT_ID/wallet/${chain.name}")
+                val connection = walletUrl.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = connection.inputStream.bufferedReader().readText()
+                    val responseJson = JSONObject(response)
+                    val walletAddress = responseJson.getString("wallet_address")
+                    
+                    if (walletAddress.isNotEmpty()) {
+                        currentMerchantWallet = walletAddress
+                        Log.d(TAG, "Wallet address for ${chain.name}: $walletAddress")
+                        
+                        // Update PaymentCardService with new wallet address
+                        updatePaymentCardServiceWallet(walletAddress)
+                    } else {
+                        Log.w(TAG, "No wallet address found for ${chain.name}, using default")
+                        // Use default wallet as fallback
+                        currentMerchantWallet = MERCHANT_WALLET
+                        updatePaymentCardServiceWallet(MERCHANT_WALLET)
+                    }
+                } else {
+                    Log.w(TAG, "Failed to fetch wallet address: HTTP $responseCode, using default")
+                    // Use default wallet as fallback
+                    currentMerchantWallet = MERCHANT_WALLET
+                    updatePaymentCardServiceWallet(MERCHANT_WALLET)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching wallet address for ${chain.name}", e)
+                // Keep using default wallet address on error
+                currentMerchantWallet = MERCHANT_WALLET
+                updatePaymentCardServiceWallet(MERCHANT_WALLET)
+            }
+        }
+    }
+    
+    private fun updatePaymentCardServiceWallet(walletAddress: String) {
+        // Update SharedPreferences so PaymentCardService can use the new wallet
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit().putString(KEY_RECIPIENT, walletAddress).apply()
     }
     
     private fun updateChainSelection() {
@@ -307,7 +366,7 @@ class MainActivity : AppCompatActivity() {
         // Send payment data to backend in a background thread
         thread {
             try {
-                Log.d(TAG, "Sending payment to backend: amount=$amount, merchant=$MERCHANT_WALLET")
+                Log.d(TAG, "Sending payment to backend: amount=$amount, tip=$tipAmount, chain=${selectedChain.name}, merchant_id=$MERCHANT_ID, wallet=$currentMerchantWallet")
                 
                 // First, create a payment intent
                 val createUrl = URL("$BACKEND_URL/payment_intents")
@@ -318,8 +377,10 @@ class MainActivity : AppCompatActivity() {
 
                 val createPayload = JSONObject().apply {
                     put("amount", amount)
-                    put("merchant_id", MERCHANT_WALLET)
+                    put("merchant_id", MERCHANT_ID) // Use merchant ID, not wallet address
                     put("currency", "USDC")
+                    put("tip_amount", tipAmount)
+                    put("chain", selectedChain.name)
                 }
 
                 OutputStreamWriter(createConnection.outputStream).use { writer ->

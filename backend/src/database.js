@@ -26,6 +26,8 @@ export function initializeDatabase() {
                     token_mint TEXT,
                     recipient_address TEXT,
                     token_decimals INTEGER DEFAULT 6,
+                    tip_amount REAL DEFAULT 0,
+                    chain TEXT DEFAULT 'Solana',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                   )
@@ -39,7 +41,13 @@ export function initializeDatabase() {
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               wallet_address TEXT NOT NULL,
-              created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+              email TEXT,
+              business_type TEXT,
+              solana_address TEXT,
+              base_address TEXT,
+              ethereum_address TEXT,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
           `, (err) => {
             if (err) reject(err);
@@ -53,6 +61,9 @@ export function initializeDatabase() {
             if (err) reject(err);
             else {
               // Ensure migration: add any missing columns for older DBs
+              const migrations = [];
+              
+              // Check payment_intents table
               db.all(`PRAGMA table_info(payment_intents)`, (err2, info) => {
                 if (err2) {
                   db.close();
@@ -60,7 +71,6 @@ export function initializeDatabase() {
                 }
 
                 const existing = (info || []).map(c => c.name);
-                const migrations = [];
                 if (!existing.includes('currency')) {
                   migrations.push(`ALTER TABLE payment_intents ADD COLUMN currency TEXT DEFAULT 'SOL'`);
                 }
@@ -73,23 +83,57 @@ export function initializeDatabase() {
                 if (!existing.includes('token_decimals')) {
                   migrations.push(`ALTER TABLE payment_intents ADD COLUMN token_decimals INTEGER DEFAULT 6`);
                 }
+                if (!existing.includes('tip_amount')) {
+                  migrations.push(`ALTER TABLE payment_intents ADD COLUMN tip_amount REAL DEFAULT 0`);
+                }
+                if (!existing.includes('chain')) {
+                  migrations.push(`ALTER TABLE payment_intents ADD COLUMN chain TEXT DEFAULT 'Solana'`);
+                }
 
-                const runNext = () => {
-                  const sql = migrations.shift();
-                  if (!sql) {
+                // Check merchants table
+                db.all(`PRAGMA table_info(merchants)`, (err3, merchantInfo) => {
+                  if (err3) {
                     db.close();
-                    return resolve(db);
+                    return reject(err3);
                   }
-                  db.run(sql, (err3) => {
-                    if (err3) {
-                      db.close();
-                      return reject(err3);
-                    }
-                    runNext();
-                  });
-                };
+                  const merchantExisting = (merchantInfo || []).map(c => c.name);
+                  if (!merchantExisting.includes('email')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN email TEXT`);
+                  }
+                  if (!merchantExisting.includes('business_type')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN business_type TEXT`);
+                  }
+                  if (!merchantExisting.includes('solana_address')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN solana_address TEXT`);
+                  }
+                  if (!merchantExisting.includes('base_address')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN base_address TEXT`);
+                  }
+                  if (!merchantExisting.includes('ethereum_address')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN ethereum_address TEXT`);
+                  }
+                  if (!merchantExisting.includes('updated_at')) {
+                    migrations.push(`ALTER TABLE merchants ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+                  }
 
-                runNext();
+                  // Run all migrations
+                  const runNext = () => {
+                    const sql = migrations.shift();
+                    if (!sql) {
+                      db.close();
+                      return resolve(db);
+                    }
+                    db.run(sql, (err4) => {
+                      if (err4) {
+                        db.close();
+                        return reject(err4);
+                      }
+                      runNext();
+                    });
+                  };
+
+                  runNext();
+                });
               });
             }
           });
@@ -114,8 +158,8 @@ export function savePaymentIntent(paymentIntent) {
   return new Promise((resolve, reject) => {
     getDatabase().then(db => {
       db.run(
-        `INSERT INTO payment_intents (id, amount, merchant_id, nonce, payment_url, status, currency, token_mint, recipient_address, token_decimals)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO payment_intents (id, amount, merchant_id, nonce, payment_url, status, currency, token_mint, recipient_address, token_decimals, tip_amount, chain)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           paymentIntent.id,
           paymentIntent.amount,
@@ -127,6 +171,8 @@ export function savePaymentIntent(paymentIntent) {
           paymentIntent.token_mint || null,
           paymentIntent.recipient_address || null,
           typeof paymentIntent.token_decimals === 'number' ? paymentIntent.token_decimals : 6,
+          paymentIntent.tip_amount || 0,
+          paymentIntent.chain || 'Solana',
         ],
         function(err) {
           if (err) {
@@ -215,17 +261,111 @@ export function getMerchantPayments(merchant_id) {
 export function saveMerchant(merchant) {
   return new Promise((resolve, reject) => {
     getDatabase().then(db => {
+      // Ensure wallet_address is set (required field)
+      const walletAddress = merchant.wallet_address || merchant.solana_address || merchant.id;
+      
       db.run(
-        `INSERT OR REPLACE INTO merchants (id, name, wallet_address)
-         VALUES (?, ?, ?)`,
-        [merchant.id, merchant.name, merchant.wallet_address],
+        `INSERT OR REPLACE INTO merchants (id, name, wallet_address, email, business_type, solana_address, base_address, ethereum_address, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        [
+          merchant.id, 
+          merchant.name || 'Merchant', 
+          walletAddress,
+          merchant.email || null,
+          merchant.business_type || null,
+          merchant.solana_address || null,
+          merchant.base_address || null,
+          merchant.ethereum_address || null,
+        ],
         function(err) {
-          db.close();
-          if (err) reject(err);
-          else resolve(merchant);
+          if (err) {
+            db.close();
+            console.error('Error saving merchant:', err);
+            return reject(err);
+          }
+          // Fetch the updated row
+          db.get(`SELECT * FROM merchants WHERE id = ?`, [merchant.id], (err2, row) => {
+            db.close();
+            if (err2) {
+              console.error('Error fetching saved merchant:', err2);
+              return reject(err2);
+            }
+            resolve(row || merchant);
+          });
         }
       );
-    }).catch(reject);
+    }).catch(err => {
+      console.error('Error in saveMerchant:', err);
+      reject(err);
+    });
+  });
+}
+
+// Update merchant settings
+export function updateMerchantSettings(merchantId, settings) {
+  return new Promise((resolve, reject) => {
+    getDatabase().then(db => {
+      const updates = [];
+      const values = [];
+      
+      // Allow empty strings, only skip if truly undefined
+      if (settings.name !== undefined && settings.name !== null) {
+        updates.push('name = ?');
+        values.push(settings.name);
+      }
+      if (settings.email !== undefined && settings.email !== null) {
+        updates.push('email = ?');
+        values.push(settings.email);
+      }
+      if (settings.business_type !== undefined && settings.business_type !== null) {
+        updates.push('business_type = ?');
+        values.push(settings.business_type);
+      }
+      if (settings.solana_address !== undefined && settings.solana_address !== null) {
+        updates.push('solana_address = ?');
+        values.push(settings.solana_address);
+      }
+      if (settings.base_address !== undefined && settings.base_address !== null) {
+        updates.push('base_address = ?');
+        values.push(settings.base_address);
+      }
+      if (settings.ethereum_address !== undefined && settings.ethereum_address !== null) {
+        updates.push('ethereum_address = ?');
+        values.push(settings.ethereum_address);
+      }
+      
+      if (updates.length === 0) {
+        db.close();
+        return resolve({});
+      }
+      
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(merchantId);
+      
+      db.run(
+        `UPDATE merchants SET ${updates.join(', ')} WHERE id = ?`,
+        values,
+        function(err) {
+          if (err) {
+            db.close();
+            console.error('Error updating merchant settings:', err);
+            return reject(err);
+          }
+          // Fetch the updated row
+          db.get(`SELECT * FROM merchants WHERE id = ?`, [merchantId], (err2, row) => {
+            db.close();
+            if (err2) {
+              console.error('Error fetching updated merchant:', err2);
+              return reject(err2);
+            }
+            resolve(row || {});
+          });
+        }
+      );
+    }).catch(err => {
+      console.error('Error in updateMerchantSettings:', err);
+      reject(err);
+    });
   });
 }
 

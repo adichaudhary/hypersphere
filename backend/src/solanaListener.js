@@ -15,19 +15,77 @@ export function getConnection() {
 
 /**
  * Derives the PDA for a PaymentIntent
+ * Uses the payment_intent_id string directly as a seed (Anchor convention)
  */
 export function derivePaymentIntentPDA(paymentIntentId) {
-  const hash = crypto.createHash('sha256');
-  hash.update(paymentIntentId);
-  const hashedId = hash.digest();
-
-  const seeds = [Buffer.from('payment_intent'), hashedId];
+  const seeds = [
+    Buffer.from('payment_intent'),
+    Buffer.from(paymentIntentId, 'utf8')
+  ];
   const [pda, bump] = PublicKey.findProgramAddressSync(seeds, PROGRAM_ID);
   return { pda, bump };
 }
 
 /**
- * Fetches PaymentIntent account from Solana (placeholder implementation)
+ * Decodes PaymentIntent account data from Solana using Borsh
+ * Account layout (after 8-byte discriminator):
+ * - id: String (4-byte length + string bytes)
+ * - merchant: Pubkey (32 bytes)
+ * - amount: u64 (8 bytes)
+ * - status: u8 (1 byte)
+ * - nonce: [u8; 32] (32 bytes)
+ * - tx_signature: String (4-byte length + string bytes)
+ * - created_at: i64 (8 bytes)
+ */
+function decodePaymentIntentAccount(data) {
+  if (!data || data.length < 8) return null;
+  
+  let offset = 8; // Skip Anchor discriminator
+  
+  // Read id (String)
+  const idLength = data.readUInt32LE(offset);
+  offset += 4;
+  const id = data.slice(offset, offset + idLength).toString('utf8');
+  offset += idLength;
+  
+  // Read merchant (Pubkey - 32 bytes)
+  const merchant = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  
+  // Read amount (u64 - 8 bytes)
+  const amount = data.readBigUInt64LE(offset);
+  offset += 8;
+  
+  // Read status (u8 - 1 byte)
+  const status = data[offset];
+  offset += 1;
+  
+  // Read nonce ([u8; 32] - 32 bytes)
+  const nonce = data.slice(offset, offset + 32);
+  offset += 32;
+  
+  // Read tx_signature (String)
+  const sigLength = data.readUInt32LE(offset);
+  offset += 4;
+  const tx_signature = data.slice(offset, offset + sigLength).toString('utf8');
+  offset += sigLength;
+  
+  // Read created_at (i64 - 8 bytes)
+  const created_at = Number(data.readBigInt64LE(offset));
+  
+  return {
+    id,
+    merchant: merchant.toBase58(),
+    amount: amount.toString(),
+    status,
+    nonce: Buffer.from(nonce),
+    tx_signature,
+    created_at,
+  };
+}
+
+/**
+ * Fetches and decodes PaymentIntent account from Solana
  */
 export async function getPaymentIntentFromSolana(paymentIntentId) {
   try {
@@ -35,17 +93,24 @@ export async function getPaymentIntentFromSolana(paymentIntentId) {
     const conn = getConnection();
     const accountInfo = await conn.getAccountInfo(pda);
 
-    if (!accountInfo) return null;
+    if (!accountInfo || !accountInfo.data) {
+      return null;
+    }
 
-    // In a production implementation we would decode account data here.
+    const decoded = decodePaymentIntentAccount(accountInfo.data);
+    if (!decoded) {
+      return null;
+    }
+
     return {
       pda: pda.toBase58(),
-      amount: '0',
-      nonce: Buffer.alloc(32),
-      status: 'unknown',
-      merchant: null,
-      payment_intent_id: paymentIntentId,
-      tx_signature: '',
+      payment_intent_id: decoded.id,
+      merchant: decoded.merchant,
+      amount: decoded.amount,
+      status: decoded.status === 0 ? 'pending' : decoded.status === 1 ? 'paid' : 'expired',
+      nonce: decoded.nonce.toString('hex'),
+      tx_signature: decoded.tx_signature,
+      created_at: new Date(decoded.created_at * 1000).toISOString(),
     };
   } catch (err) {
     console.error('Error fetching PaymentIntent from Solana:', err);
@@ -240,20 +305,36 @@ export async function watchPaymentIntent(paymentIntentId, callback) {
       pda,
       (accountInfo) => {
         try {
+          if (!accountInfo || !accountInfo.data) {
+            console.warn(`Account ${pda.toBase58()} has no data`);
+            return;
+          }
+
+          const decoded = decodePaymentIntentAccount(accountInfo.data);
+          if (!decoded) {
+            console.warn(`Failed to decode account data for ${paymentIntentId}`);
+            return;
+          }
+
+          const status = decoded.status === 0 ? 'pending' : decoded.status === 1 ? 'paid' : 'expired';
+          
           callback({
             paymentIntentId,
             pda: pda.toBase58(),
-            amount: '0',
-            status: 'paid',
-            tx_signature: 'mock-tx-signature',
+            amount: decoded.amount,
+            status,
+            tx_signature: decoded.tx_signature || '',
+            merchant: decoded.merchant,
+            nonce: decoded.nonce.toString('hex'),
           });
         } catch (err) {
           console.error('Error processing account data:', err);
         }
-      }
+      },
+      'confirmed'
     );
 
-    console.log(`Watching PaymentIntent: ${paymentIntentId}`);
+    console.log(`Watching PaymentIntent PDA: ${pda.toBase58()} for payment intent: ${paymentIntentId}`);
 
     return () => {
       try {
