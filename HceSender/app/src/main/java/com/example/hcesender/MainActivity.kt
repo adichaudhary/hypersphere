@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "MainActivity"
 
         // Merchant wallet (hardcoded for consistency with PaymentCardService)
-        const val MERCHANT_WALLET = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U"
+        const val MERCHANT_WALLET = "2Qw4fFW9MeKvJXPVfMWX6X324PaX8aAA8B9J2Xnv8PBF"
         const val DEFAULT_AMOUNT = "0.01"
         
         // Backend API endpoint (update this with your actual backend URL)

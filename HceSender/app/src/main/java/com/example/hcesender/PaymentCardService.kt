@@ -18,7 +18,7 @@ class PaymentCardService : HostApduService() {
         private const val KEY_AMOUNT = "amount"
 
         // Merchant wallet (IMPORTANT)
-        private const val MERCHANT_WALLET = "4UznnYY4AMzAmss6AqeAvqUs5KeWYNinzKE2uFFQZ16U"
+        private const val MERCHANT_WALLET = "2Qw4fFW9MeKvJXPVfMWX6X324PaX8aAA8B9J2Xnv8PBF"
         
         // USDC mint address on Solana mainnet
         private const val USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
